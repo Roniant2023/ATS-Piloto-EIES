@@ -197,7 +197,7 @@ function normalizeEnvironment(env: any) {
     noiseLevel: toStrOrNull(e.noiseLevel),
     procedureUsedText: toStrOrNull(e.procedureUsedText),
     controlsAvailable: Array.isArray(e.controlsAvailable)
-      ? e.controlsAvailable.map(String).map((s) => s.trim()).filter(Boolean)
+      ? e.controlsAvailable.map(String).map((s: string) => s.trim()).filter(Boolean)
       : [],
   };
 }

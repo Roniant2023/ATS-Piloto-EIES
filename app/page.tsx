@@ -881,7 +881,6 @@ export default function Page() {
   const handlePrintToPdf = useReactToPrint({
     contentRef: printRef,
     documentTitle: fileTitle,
-    removeAfterPrint: true,
     pageStyle: `
       @page { size: A4; margin: 10mm; }
       @media print {
