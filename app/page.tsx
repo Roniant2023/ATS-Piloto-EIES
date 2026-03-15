@@ -1,10 +1,12 @@
+/*bloque1
+
 "use client";
 
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { useReactToPrint } from "react-to-print";
 
 /* =========================
-   TIPOS
+TIPOS
 ========================= */
 type ProcedureRef = {
   title?: string;
@@ -40,7 +42,11 @@ type ATSStopWork = {
   rationale: string;
 };
 
-type ATSProcedureMini = { title: string; code: string; origin: string };
+type ATSProcedureMini = {
+  title: string;
+  code: string;
+  origin: string;
+};
 
 type ATSProcedureInfluence = {
   applied: ATSProcedureMini[];
@@ -51,11 +57,15 @@ type ATSProcedureInfluence = {
     source: ATSProcedureMini;
   }>;
 };
-
+/* bloque2
 /* =========================
-   ✅ Tipos checklist_actions
+Checklist types
 ========================= */
-type ATSChecklistDecisionHint = "STOP" | "REVIEW_REQUIRED" | "CONTINUE";
+
+type ATSChecklistDecisionHint =
+  | "STOP"
+  | "REVIEW_REQUIRED"
+  | "CONTINUE";
 
 type ATSChecklistAction = {
   priority: "critical" | "high" | "medium" | "low";
@@ -76,10 +86,7 @@ type ATSChecklistActions = {
   actions: ATSChecklistAction[];
   snapshot: any;
 };
-
-/* =========================
-   ✅ NUEVO: Recomendaciones IA (tolerante)
-========================= */
+/*bloque3
 type ATSRecommendations = {
   controls?: {
     engineering?: string[];
@@ -99,2591 +106,2057 @@ type ATS = {
     date: string;
     shift: string;
   };
+
   environment: any;
+
   hazards: string[];
+
   controls: {
     engineering: string[];
     administrative: string[];
     ppe: string[];
   };
-  steps: Array<{ step: string; hazards: string[]; controls: string[] }>;
+
+  steps: Array<{
+    step: string;
+    hazards: string[];
+    controls: string[];
+  }>;
+
   stop_work: ATSStopWork;
+
   procedure_refs_used: ATSProcedureMini[];
+
   procedure_influence: ATSProcedureInfluence;
+
   checklist_actions?: ATSChecklistActions;
 
-  // ✅ NUEVO: Normas / recomendaciones (opcionales)
   normative_refs?: string[];
   normative_refs_used?: string[];
+
   recommendations?: ATSRecommendations;
   ai_recommendations?: ATSRecommendations;
   suggestions?: ATSRecommendations;
   controls_recommendations?: ATSRecommendations;
 };
-
+/*Bloque4
 /* =========================
-   ✅ Tipos Lección Aprendida
+Helpers
 ========================= */
-type LessonLearnedBrief = {
-  title: string;
-  code: string;
-  origin: string;
-  parseable: boolean;
-  brief: {
-    scope: string;
-    mandatory_permits: string[];
-    critical_controls: {
-      engineering: string[];
-      administrative: string[];
-      ppe: string[];
-    };
-    stop_work: string[];
-    mandatory_steps: string[];
-    restrictions: string[];
-  };
-};
 
-type LessonLearnedApiResponse = {
-  lesson: any;
-  lesson_learned_brief: LessonLearnedBrief;
-};
-
-/* =========================
-   UTILS
-========================= */
-function clsx(...parts: Array<string | false | null | undefined>) {
-  return parts.filter(Boolean).join(" ");
+function safeArray(x: any): string[] {
+  if (!x) return [];
+  if (Array.isArray(x)) return x;
+  if (typeof x === "string") return [x];
+  return [];
 }
 
-function formatDateEsCOFromISO(iso: string): string {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-").map(Number);
-  if (!y || !m || !d) return "";
-  return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
+function mergeUnique(a: string[], b: string[]) {
+  return Array.from(new Set([...(a || []), ...(b || [])]));
 }
 
-function cleanString(v: any): string | null {
-  if (v === null || v === undefined) return null;
-  const s = String(v).trim();
-  return s.length ? s : null;
+function normalizeText(s: any): string {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
-
-function cleanNumber(v: any): number | null {
-  if (v === null || v === undefined) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-function sanitizeEnvironment(env: Environment): Environment {
+/*Bloque5
+function asProcedureMini(p: any): ATSProcedureMini {
   return {
-    timeOfDay: cleanString(env.timeOfDay),
-    weather: cleanString(env.weather),
-    wind: cleanString(env.wind),
-    lighting: cleanString(env.lighting),
-    terrain: cleanString(env.terrain),
-    visibility: cleanString(env.visibility),
-    temperatureC: cleanNumber(env.temperatureC),
-    humidityPct: cleanNumber(env.humidityPct),
+    title: String(p?.title || "Procedimiento sin título"),
+    code: String(p?.code || "N/A"),
+    origin: String(p?.origin || "Adjunto"),
   };
 }
 
-function isPdfOrDocx(file: File) {
-  const name = file.name.toLowerCase();
-  return name.endsWith(".pdf") || name.endsWith(".docx");
-}
+function extractJsonFromText(text: string): any | null {
+  if (!text) return null;
 
-function fileKey(f: File) {
-  return `${f.name}__${f.size}`;
-}
+  const cleaned = text.trim();
 
-function safeJsonParse<T = any>(
-  text: string
-): { ok: true; value: T } | { ok: false; error: string } {
   try {
-    return { ok: true, value: JSON.parse(text) };
-  } catch (e: any) {
-    return { ok: false, error: String(e?.message || e) };
+    return JSON.parse(cleaned);
+  } catch {}
+
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    const maybe = cleaned.slice(firstBrace, lastBrace + 1);
+    try {
+      return JSON.parse(maybe);
+    } catch {}
   }
+
+  return null;
 }
 
-function badgeForDecision(decision?: string) {
-  if (decision === "STOP") return { label: "STOP WORK", cls: "bg-red-600 text-white" };
-  if (decision === "REVIEW_REQUIRED")
-    return { label: "REVISIÓN REQUERIDA", cls: "bg-amber-500 text-black" };
-  return { label: "CONTINUAR", cls: "bg-green-600 text-white" };
-}
-
-function sectionColorForDecision(decision?: string) {
-  if (decision === "STOP") return "border-red-300 bg-red-50";
-  if (decision === "REVIEW_REQUIRED") return "border-amber-300 bg-amber-50";
-  return "border-green-300 bg-green-50";
-}
-
-function miniLabel(p: { title?: string; code?: string; origin?: string }) {
-  const t = (p.title || "Procedimiento").trim();
-  const c = (p.code || "").trim();
-  const o = (p.origin || "").trim();
-  return `${t}${c ? ` (${c})` : ""}${o ? ` — ${o}` : ""}`;
-}
-
-/** dedupe + trim + remove vacíos */
-function uniqueNonEmpty(arr: any): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const src = Array.isArray(arr) ? arr : [];
-  for (const x of src) {
-    const s = String(x ?? "").trim();
-    if (!s) continue;
-    if (seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
-  }
-  return out;
-}
-
-function toggleInArray(list: string[], value: string) {
-  const exists = list.includes(value);
-  return exists ? list.filter((x) => x !== value) : [...list, value];
-}
-
-/* =========================
-   ✅ NUEVO: Parse de normas (textarea)
-========================= */
-function parseNormativeRefs(text: string): string[] {
-  if (!text?.trim()) return [];
-  // separa por saltos de línea, ; o , (pero permite comas dentro si el usuario las usa, igual lo tolera)
-  const raw = text
-    .split(/\n|;|\r\n/g)
-    .map((s) => s.trim())
+function splitLines(text: string): string[] {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((x) => x.trim())
     .filter(Boolean);
-
-  return uniqueNonEmpty(raw);
 }
 
-/* =========================
-   ✅ NUEVO: extraer recomendaciones IA de múltiples claves posibles
-========================= */
-function extractRecommendations(ats: any): ATSRecommendations | null {
-  if (!ats || typeof ats !== "object") return null;
-
-  const cand =
-    ats.recommendations ??
-    ats.ai_recommendations ??
-    ats.controls_recommendations ??
-    ats.suggestions ??
-    null;
-
-  if (!cand || typeof cand !== "object") return null;
-  return cand as ATSRecommendations;
-}
-
-function normalizeRecControls(rec: ATSRecommendations | null) {
-  const eng = uniqueNonEmpty(rec?.controls?.engineering);
-  const adm = uniqueNonEmpty(rec?.controls?.administrative);
-  const ppe = uniqueNonEmpty(rec?.controls?.ppe);
-  const recommendations = uniqueNonEmpty(rec?.recommendations);
-  const notes = uniqueNonEmpty(rec?.notes);
-  return { eng, adm, ppe, recommendations, notes };
-}
-
-/* =========================
-   ✅ Helpers checklist
-========================= */
-function badgeForChecklistHint(decision?: string) {
-  if (decision === "STOP") return { label: "STOP WORK", cls: "bg-red-600 text-white" };
-  if (decision === "REVIEW_REQUIRED")
-    return { label: "REVISIÓN REQUERIDA", cls: "bg-amber-500 text-black" };
-  return { label: "CONTINUAR", cls: "bg-green-600 text-white" };
-}
-
-function sortChecklistActions(list: ATSChecklistAction[]) {
-  const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-  return [...(list || [])].sort((a, b) => (order[a.priority] ?? 99) - (order[b.priority] ?? 99));
-}
-
-function pillForPriority(p: ATSChecklistAction["priority"]) {
-  if (p === "critical") return { label: "CRÍTICO", cls: "bg-red-600 text-white border-red-700" };
-  if (p === "high") return { label: "ALTO", cls: "bg-orange-500 text-black border-orange-600" };
-  if (p === "medium") return { label: "MEDIO", cls: "bg-amber-300 text-black border-amber-400" };
-  return { label: "BAJO", cls: "bg-slate-200 text-black border-slate-300" };
-}
-
-function pillForCategory(c: ATSChecklistAction["category"]) {
-  if (c === "engineering")
-    return { label: "Ingeniería", cls: "bg-indigo-50 text-indigo-900 border-indigo-200" };
-  if (c === "administrative")
-    return { label: "Administrativo", cls: "bg-blue-50 text-blue-900 border-blue-200" };
-  return { label: "EPP", cls: "bg-emerald-50 text-emerald-900 border-emerald-200" };
-}
-
-function pillForDecisionHint(h?: string) {
-  if (h === "STOP") return { label: "STOP", cls: "bg-red-600 text-white" };
-  if (h === "REVIEW_REQUIRED") return { label: "REVISAR", cls: "bg-amber-500 text-black" };
-  return { label: "OK", cls: "bg-green-600 text-white" };
-}
-
-/* =========================
-   ✅ COMPONENTE: Checklist Actions
-========================= */
-function ChecklistSection({ checklist }: { checklist: ATSChecklistActions }) {
-  const hint = checklist?.decision_hint;
-  const hintBadge = badgeForChecklistHint(hint);
-  const hintPill = pillForDecisionHint(hint);
-
-  const missing = uniqueNonEmpty(checklist?.missing);
-  const criticalFails = uniqueNonEmpty(checklist?.critical_fails);
-
-  const derivedEng = uniqueNonEmpty(checklist?.derived_controls?.engineering);
-  const derivedAdm = uniqueNonEmpty(checklist?.derived_controls?.administrative);
-  const derivedPpe = uniqueNonEmpty(checklist?.derived_controls?.ppe);
-
-  const actionsSorted = sortChecklistActions(
-    Array.isArray(checklist?.actions) ? checklist.actions : []
-  );
-
-  return (
-    <section className="border rounded-xl p-4 md:p-5 bg-white shadow-sm space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-xs text-neutral-500">Checklist corporativo (Formato Estrella)</div>
-          <div className="text-lg font-semibold">Acciones y verificación</div>
-          <div className="text-sm text-neutral-700 mt-1">
-            Estado:{" "}
-            <span
-              className={clsx(
-                "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold",
-                hintPill.cls
-              )}
-            >
-              {hintPill.label}
-            </span>
-          </div>
-        </div>
-
-        <span className={clsx("px-3 py-1 rounded-full text-sm font-semibold", hintBadge.cls)}>
-          {hintBadge.label}
-        </span>
-      </div>
-
-      {(criticalFails.length > 0 || missing.length > 0) && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div
-            className={clsx(
-              "border rounded-lg p-3",
-              criticalFails.length ? "border-red-200 bg-red-50" : "border-neutral-200 bg-neutral-50"
-            )}
-          >
-            <div className="font-semibold text-sm flex items-center justify-between">
-              <span>Fallos críticos</span>
-              <span className="text-xs text-neutral-600">{criticalFails.length}</span>
-            </div>
-            {criticalFails.length === 0 ? (
-              <div className="text-sm text-neutral-600 mt-2">—</div>
-            ) : (
-              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                {criticalFails.map((x, i) => (
-                  <li key={i} className="text-red-900">
-                    {x}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div
-            className={clsx(
-              "border rounded-lg p-3",
-              missing.length ? "border-amber-200 bg-amber-50" : "border-neutral-200 bg-neutral-50"
-            )}
-          >
-            <div className="font-semibold text-sm flex items-center justify-between">
-              <span>Faltantes</span>
-              <span className="text-xs text-neutral-600">{missing.length}</span>
-            </div>
-            {missing.length === 0 ? (
-              <div className="text-sm text-neutral-600 mt-2">—</div>
-            ) : (
-              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                {missing.map((x, i) => (
-                  <li key={i} className="text-amber-900">
-                    {x}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div className="border rounded-lg p-3 bg-neutral-50">
-        <div className="font-semibold text-sm">Controles derivados del checklist</div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-          <div className="border rounded-lg p-3 bg-white">
-            <div className="text-sm font-semibold">Ingeniería</div>
-            {derivedEng.length ? (
-              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                {derivedEng.map((c, i) => (
-                  <li key={i}>{c}</li>
-                ))}
-              </ul>
-            ) : (
-              <div className="text-sm text-neutral-600 mt-2">—</div>
-            )}
-          </div>
-          <div className="border rounded-lg p-3 bg-white">
-            <div className="text-sm font-semibold">Administrativos</div>
-            {derivedAdm.length ? (
-              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                {derivedAdm.map((c, i) => (
-                  <li key={i}>{c}</li>
-                ))}
-              </ul>
-            ) : (
-              <div className="text-sm text-neutral-600 mt-2">—</div>
-            )}
-          </div>
-          <div className="border rounded-lg p-3 bg-white">
-            <div className="text-sm font-semibold">EPP</div>
-            {derivedPpe.length ? (
-              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                {derivedPpe.map((c, i) => (
-                  <li key={i}>{c}</li>
-                ))}
-              </ul>
-            ) : (
-              <div className="text-sm text-neutral-600 mt-2">—</div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="border rounded-lg p-3 bg-white">
-        <div className="flex items-center justify-between">
-          <div className="font-semibold text-sm">Acciones recomendadas</div>
-          <div className="text-xs text-neutral-600">{actionsSorted.length} acción(es)</div>
-        </div>
-
-        {actionsSorted.length === 0 ? (
-          <div className="text-sm text-neutral-600 mt-2">No hay acciones adicionales.</div>
-        ) : (
-          <ul className="mt-3 space-y-2">
-            {actionsSorted.map((a, i) => {
-              const pr = pillForPriority(a.priority);
-              const cat = pillForCategory(a.category);
-
-              return (
-                <li key={i} className="border rounded-lg p-3 bg-neutral-50">
-                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <span
-                      className={clsx(
-                        "text-[11px] font-semibold px-2 py-0.5 rounded-full border",
-                        pr.cls
-                      )}
-                    >
-                      {pr.label}
-                    </span>
-                    <span
-                      className={clsx(
-                        "text-[11px] font-semibold px-2 py-0.5 rounded-full border",
-                        cat.cls
-                      )}
-                    >
-                      {cat.label}
-                    </span>
-                  </div>
-
-                  <div className="text-sm text-neutral-900">{a.action}</div>
-
-                  {Array.isArray(a.evidence) && a.evidence.length > 0 && (
-                    <div className="mt-2">
-                      <div className="text-xs font-semibold text-neutral-600">Evidencia</div>
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        {uniqueNonEmpty(a.evidence).map((e, idx) => (
-                          <span
-                            key={idx}
-                            className="text-[11px] px-2 py-0.5 rounded-full border bg-white text-neutral-800"
-                          >
-                            {e}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
-      <div className="text-xs text-neutral-500">
-        Nota: estas acciones se derivan del Formato Estrella y reglas determinísticas; la IA solo “afina”
-        redacción y verificabilidad.
-      </div>
-    </section>
+function uniqueStrings(arr: string[]): string[] {
+  return Array.from(
+    new Set(
+      (arr || [])
+        .map((x) => String(x || "").trim())
+        .filter(Boolean)
+    )
   );
 }
+/*bloque6
+function extractPotentialControlsFromText(text: string): {
+  engineering: string[];
+  administrative: string[];
+  ppe: string[];
+} {
+  const lines = splitLines(text);
 
-/* =========================
-   ✅ COMPONENTE: Recomendaciones IA
-========================= */
-function RecommendationsSection({ ats }: { ats: any }) {
-  const rec = extractRecommendations(ats);
-  if (!rec) return null;
+  const engineering: string[] = [];
+  const administrative: string[] = [];
+  const ppe: string[] = [];
 
-  const { eng, adm, ppe, recommendations, notes } = normalizeRecControls(rec);
+  for (const raw of lines) {
+    const line = normalizeText(raw);
 
-  const hasAnything =
-    eng.length || adm.length || ppe.length || recommendations.length || notes.length;
+    if (!line) continue;
 
-  if (!hasAnything) return null;
-
-  return (
-    <section className="border rounded-xl p-4 md:p-5 bg-white shadow-sm space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-xs text-neutral-500">Sugerencias generadas con IA</div>
-          <div className="text-lg font-semibold">Controles y recomendaciones</div>
-          <div className="text-sm text-neutral-700 mt-1">
-            Nota: revisar aplicabilidad en campo y alinear con procedimientos / permisos vigentes.
-          </div>
-        </div>
-      </div>
-
-      {(eng.length || adm.length || ppe.length) > 0 && (
-        <div className="border rounded-lg p-3 bg-neutral-50">
-          <div className="font-semibold text-sm">Controles sugeridos (jerarquía)</div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-            <div className="border rounded-lg p-3 bg-white">
-              <div className="text-sm font-semibold">Ingeniería</div>
-              {eng.length ? (
-                <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                  {eng.map((c, i) => (
-                    <li key={i}>{c}</li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="text-sm text-neutral-600 mt-2">—</div>
-              )}
-            </div>
-            <div className="border rounded-lg p-3 bg-white">
-              <div className="text-sm font-semibold">Administrativos</div>
-              {adm.length ? (
-                <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                  {adm.map((c, i) => (
-                    <li key={i}>{c}</li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="text-sm text-neutral-600 mt-2">—</div>
-              )}
-            </div>
-            <div className="border rounded-lg p-3 bg-white">
-              <div className="text-sm font-semibold">EPP</div>
-              {ppe.length ? (
-                <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                  {ppe.map((c, i) => (
-                    <li key={i}>{c}</li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="text-sm text-neutral-600 mt-2">—</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {recommendations.length > 0 && (
-        <div className="border rounded-lg p-3 bg-white">
-          <div className="font-semibold text-sm">Recomendaciones</div>
-          <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-            {recommendations.map((x, i) => (
-              <li key={i}>{x}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {notes.length > 0 && (
-        <div className="border rounded-lg p-3 bg-neutral-50">
-          <div className="font-semibold text-sm">Notas</div>
-          <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-            {notes.map((x, i) => (
-              <li key={i}>{x}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </section>
-  );
-}
-
-/* =========================
-   CONSTANTES FORMATO ESTRELLA (CHECKLISTS)
-========================= */
-const PELIGROS_TIPOS = [
-  "Físico",
-  "Químico",
-  "Biológico",
-  "Mecánico",
-  "Tecnológicos",
-  "Trabajo en alturas",
-  "Espacio Confinado",
-  "Locativo",
-  "Psicosocial",
-  "Biomecánico",
-  "Eléctrico",
-  "Objetos con potencial de caída",
-  "Otros",
-] as const;
-
-const PELIGROS_ENTORNO = [
-  "Instalaciones Aledañas",
-  "Operaciones Simultáneas",
-  "Condiciones del terreno",
-  "Clima",
-  "Otros",
-] as const;
-
-const EMERGENCIAS = [
-  "Incendio / Explosión",
-  "Descontrol de Pozos",
-  "Accidente vial",
-  "Afectación ambiental",
-  "Emergencia Médica",
-  "Orden Público",
-  "Desastre natural",
-  "Gas Sulfhídrico",
-] as const;
-
-const EQUIPO_SEGURIDAD = [
-  "Casco",
-  "Guantes",
-  "Mascara facial",
-  "Extintores / Matafuegos",
-  "Botas de seguridad",
-  "Protección Respiratoria",
-  "Antiparras/ oxicorte",
-  "Lockout/Layout/ EMN",
-  "Gafas de Seguridad",
-  "Arnés de Seguridad",
-  "Barreras",
-  "Kit herramientas para alturas",
-  "Protección Auditiva",
-  "Medición de gases",
-  "Señalización/Conos/Limitación de Área",
-  "Otros",
-] as const;
-
-const ACUERDOS_DE_VIDA = [
-  "1_Detención de tareas",
-  "2_Aislamiento de energía, bloqueo y etiquetado",
-  "3_Espacios confinados",
-  "4_Conducción segura",
-  "5_Trabajos en caliente",
-  "6_Línea de peligro",
-  "7_Izaje",
-  "8_Permiso de trabajo",
-  "9_Trabajo en altura",
-  "10_Salud pública",
-] as const;
-
-/* =========================
-   COMPONENT
-========================= */
-export default function Page() {
-  // Cabecera (tu ATS inteligente)
-  const [jobTitle, setJobTitle] = useState("");
-  const [company, setCompany] = useState("");
-  const [location, setLocation] = useState("");
-  const [dateISO, setDateISO] = useState("");
-  const [shift, setShift] = useState("");
-
-  // ✅ NUEVO: Referencias normativas (opcional)
-  const [normativeRefsText, setNormativeRefsText] = useState("");
-
-  // Actividades
-  const [lifting, setLifting] = useState(false);
-  const [hotWork, setHotWork] = useState(false);
-  const [workAtHeight, setWorkAtHeight] = useState(false);
-
-  // Entorno editable
-  const [environment, setEnvironment] = useState<Environment>({
-    timeOfDay: null,
-    weather: null,
-    temperatureC: null,
-    humidityPct: null,
-    wind: null,
-    lighting: null,
-    terrain: null,
-    visibility: null,
-  });
-
-  // Procedimientos
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [procedureRefs, setProcedureRefs] = useState<ProcedureRef[]>([]);
-  const [procedureResults, setProcedureResults] = useState<ProcedureResult[]>([]);
-  const [uploading, setUploading] = useState(false);
-
-  // ATS
-  const [generatingATS, setGeneratingATS] = useState(false);
-  const [atsResult, setAtsResult] = useState<ATS | any>(null);
-
-  // UI feedback
-  const [uiError, setUiError] = useState<string | null>(null);
-  const [uiInfo, setUiInfo] = useState<string | null>(null);
-
-  // File picker
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  /** Accordion pasos */
-  const [openSteps, setOpenSteps] = useState<Record<number, boolean>>({});
-  function toggleStep(i: number) {
-    setOpenSteps((prev) => ({ ...prev, [i]: !prev[i] }));
-  }
-
-  /* =========================
-     ✅ BLOQUES “ATS ESTRELLA” (datos del formato)
-  ========================= */
-  const [atsNumber, setAtsNumber] = useState("");
-  const [permitNumber, setPermitNumber] = useState("");
-  const [elaborationDateISO, setElaborationDateISO] = useState("");
-  const [executionDateISO, setExecutionDateISO] = useState("");
-  const [formatVersion, setFormatVersion] = useState("");
-  const [procedureCodeRelated, setProcedureCodeRelated] = useState("");
-  const [workFront, setWorkFront] = useState("");
-
-  const [incidentsReference, setIncidentsReference] = useState<"Si" | "No" | "">("");
-  const [otherCompanies, setOtherCompanies] = useState<"Si" | "No" | "">("");
-
-  const [dangerTypes, setDangerTypes] = useState<string[]>([]);
-  const [dangerTypesOther, setDangerTypesOther] = useState("");
-
-  const [environmentDangers, setEnvironmentDangers] = useState<string[]>([]);
-  const [environmentDangersOther, setEnvironmentDangersOther] = useState("");
-
-  const [emergencies, setEmergencies] = useState<string[]>([]);
-
-  const [safetyEquipment, setSafetyEquipment] = useState<string[]>([]);
-  const [safetyEquipmentOther, setSafetyEquipmentOther] = useState("");
-
-  const [lifeSavingRules, setLifeSavingRules] = useState<string[]>([]);
-
-  // Autorizaciones
-  const [executants, setExecutants] = useState<Array<{ name: string; signature: string }>>([
-    { name: "", signature: "" },
-    { name: "", signature: "" },
-    { name: "", signature: "" },
-  ]);
-
-  const [supervisorName, setSupervisorName] = useState("");
-  const [supervisorRole, setSupervisorRole] = useState("");
-  const [supervisorSignature, setSupervisorSignature] = useState("");
-
-  const [checkStagesClarity, setCheckStagesClarity] = useState<"SI" | "NO" | "N.A." | "">("");
-  const [checkHazardsControlled, setCheckHazardsControlled] = useState<"SI" | "NO" | "N.A." | "">("");
-  const [checkIsolationConfirmed, setCheckIsolationConfirmed] = useState<"SI" | "NO" | "N.A." | "">("");
-  const [checkCommsAgreed, setCheckCommsAgreed] = useState<"SI" | "NO" | "N.A." | "">("");
-  const [checkToolsOk, setCheckToolsOk] = useState<"SI" | "NO" | "N.A." | "">("");
-
-  const [approverName, setApproverName] = useState("");
-  const [approverSignature, setApproverSignature] = useState("");
-
-  /* =========================
-     ✅ LECCIÓN APRENDIDA (UI + state + upload)
-  ========================= */
-  const lessonInputRef = useRef<HTMLInputElement | null>(null);
-  const [lessonFile, setLessonFile] = useState<File | null>(null);
-  const [lessonUploading, setLessonUploading] = useState(false);
-  const [lessonResult, setLessonResult] = useState<LessonLearnedApiResponse | null>(null);
-
-  function openLessonPicker() {
-    lessonInputRef.current?.click();
-  }
-
-  function clearLessonLearned() {
-    setLessonFile(null);
-    setLessonResult(null);
-  }
-
-  async function uploadLessonLearned(file: File) {
-    setUiError(null);
-    setUiInfo(null);
-
-    if (!isPdfOrDocx(file)) {
-      setUiError("La lección aprendida debe ser PDF o DOCX.");
-      return;
+    if (
+      /guarda|barrera|baranda|aislamiento|enclavamiento|dispositivo|sensor|alarma|ventilacion|extractor|linea de vida|anclaje|proteccion colectiva|resguardo|parada de emergencia|interlock/.test(
+        line
+      )
+    ) {
+      engineering.push(raw);
+      continue;
     }
 
-    setLessonUploading(true);
-    setLessonResult(null);
+    if (
+      /permiso|procedimiento|capacitacion|entrenamiento|inspeccion|senalizacion|demarcacion|analisis de riesgo|ats|ast|supervision|plan de izaje|checklist|charla|autorizacion|bloqueo|lototo|loto|control operacional/.test(
+        line
+      )
+    ) {
+      administrative.push(raw);
+      continue;
+    }
 
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
+    if (
+      /casco|gafas|guantes|respirador|protector auditivo|botas|arnes|barbuquejo|careta|tapaoidos|mascarilla|ropa de trabajo|chaleco|epp/.test(
+        line
+      )
+    ) {
+      ppe.push(raw);
+      continue;
+    }
+  }
 
-      const res = await fetch("/api/lesson-learned-brief", {
-        method: "POST",
-        body: formData,
+  return {
+    engineering: uniqueStrings(engineering),
+    administrative: uniqueStrings(administrative),
+    ppe: uniqueStrings(ppe),
+  };
+}
+/*bloque7
+function inferControlsFromProcedure(proc: any): Array<{
+  level: "engineering" | "administrative" | "ppe";
+  control: string;
+}> {
+  const results: Array<{
+    level: "engineering" | "administrative" | "ppe";
+    control: string;
+  }> = [];
+
+  if (!proc) return results;
+
+  const textBlocks: string[] = [];
+
+  if (typeof proc === "string") {
+    textBlocks.push(proc);
+  } else if (typeof proc === "object") {
+    for (const [_, value] of Object.entries(proc)) {
+      if (typeof value === "string") {
+        textBlocks.push(value);
+      } else if (Array.isArray(value)) {
+        for (const item of value) {
+          if (typeof item === "string") textBlocks.push(item);
+          else if (typeof item === "object" && item) {
+            for (const sub of Object.values(item)) {
+              if (typeof sub === "string") textBlocks.push(sub);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const consolidated = textBlocks.join("\n");
+  const extracted = extractPotentialControlsFromText(consolidated);
+
+  extracted.engineering.forEach((c) =>
+    results.push({ level: "engineering", control: c })
+  );
+  extracted.administrative.forEach((c) =>
+    results.push({ level: "administrative", control: c })
+  );
+  extracted.ppe.forEach((c) => results.push({ level: "ppe", control: c }));
+
+  return results;
+}
+/*Bloque8
+function buildProcedureInfluence(
+  procedures: ProcedureRef[]
+): ATSProcedureInfluence {
+  const applied: ATSProcedureMini[] = [];
+  const not_parseable: ATSProcedureMini[] = [];
+  const derived_controls: Array<{
+    level: "engineering" | "administrative" | "ppe";
+    control: string;
+    source: ATSProcedureMini;
+  }> = [];
+
+  for (const p of procedures || []) {
+    const mini = asProcedureMini(p);
+
+    if (p?.parseable === false) {
+      not_parseable.push(mini);
+      continue;
+    }
+
+    applied.push(mini);
+
+    const controls = inferControlsFromProcedure(p);
+    controls.forEach((ctrl) => {
+      derived_controls.push({
+        ...ctrl,
+        source: mini,
       });
+    });
+  }
 
-      const text = await res.text();
-      if (!res.ok) {
-        setUiError(`Error en /api/lesson-learned-brief (HTTP ${res.status}): ${text}`);
-        return;
-      }
+  return {
+    applied,
+    not_parseable,
+    derived_controls,
+  };
+}
 
-      const parsed = safeJsonParse<LessonLearnedApiResponse>(text);
-      if (!parsed.ok) {
-        setUiError(`Respuesta lección aprendida no JSON: ${parsed.error}`);
-        return;
-      }
+function groupDerivedControls(
+  derived: ATSProcedureInfluence["derived_controls"]
+): {
+  engineering: string[];
+  administrative: string[];
+  ppe: string[];
+} {
+  const engineering = uniqueStrings(
+    (derived || [])
+      .filter((x) => x.level === "engineering")
+      .map((x) => x.control)
+  );
 
-      if (!parsed.value?.lesson_learned_brief) {
-        setUiError("Respuesta inválida: no llegó lesson_learned_brief.");
-        return;
-      }
+  const administrative = uniqueStrings(
+    (derived || [])
+      .filter((x) => x.level === "administrative")
+      .map((x) => x.control)
+  );
 
-      setLessonResult(parsed.value);
-      setUiInfo("✅ Lección aprendida procesada y lista para el ATS.");
-    } catch (err: any) {
-      setUiError(`Excepción cargando lección aprendida: ${String(err?.message || err)}`);
-    } finally {
-      setLessonUploading(false);
+  const ppe = uniqueStrings(
+    (derived || [])
+      .filter((x) => x.level === "ppe")
+      .map((x) => x.control)
+  );
+
+  return { engineering, administrative, ppe };
+}
+/*bloque9
+function yes(v: any): boolean {
+  return v === true || v === "true" || v === "sí" || v === "si" || v === "yes";
+}
+
+function no(v: any): boolean {
+  return v === false || v === "false" || v === "no";
+}
+
+function buildChecklistActions(snapshot: any): ATSChecklistActions {
+  const missing: string[] = [];
+  const critical_fails: string[] = [];
+
+  const derived_controls = {
+    engineering: [] as string[],
+    administrative: [] as string[],
+    ppe: [] as string[],
+  };
+
+  const actions: ATSChecklistAction[] = [];
+
+  const workAtHeight = yes(snapshot?.workAtHeight);
+  const confinedSpace = yes(snapshot?.confinedSpace);
+  const liftingOps = yes(snapshot?.liftingOps);
+  const lineOpening = yes(snapshot?.lineOpening);
+  const energizedWork = yes(snapshot?.energizedWork);
+  const hotWork = yes(snapshot?.hotWork);
+
+  const hasPermit = yes(snapshot?.permitApproved);
+  const hasIsolation = yes(snapshot?.isolated);
+  const gasTestOk = yes(snapshot?.gasTestOk);
+  const rescuePlan = yes(snapshot?.rescuePlan);
+  const certifiedPersonnel = yes(snapshot?.certifiedPersonnel);
+  const ppeVerified = yes(snapshot?.ppeVerified);
+  const toolsInspected = yes(snapshot?.toolsInspected);
+  const areaDelimited = yes(snapshot?.areaDelimited);
+  const weatherOk = yes(snapshot?.weatherOk);
+/*bloque10
+if (!hasPermit) {
+    missing.push("Permiso de trabajo aprobado");
+    actions.push({
+      priority: "critical",
+      category: "administrative",
+      action: "Gestionar y aprobar el permiso de trabajo antes de iniciar.",
+      evidence: ["Permiso firmado y vigente"],
+    });
+  }
+
+  if (!ppeVerified) {
+    missing.push("Verificación de EPP");
+    actions.push({
+      priority: "high",
+      category: "ppe",
+      action: "Verificar y registrar el EPP requerido para la tarea.",
+      evidence: ["Checklist EPP", "Inspección visual previa"],
+    });
+    derived_controls.ppe.push("Uso obligatorio de EPP verificado antes de iniciar");
+  }
+
+  if (!toolsInspected) {
+    missing.push("Inspección de herramientas/equipos");
+    actions.push({
+      priority: "high",
+      category: "administrative",
+      action: "Inspeccionar herramientas y equipos antes del uso.",
+      evidence: ["Checklist preoperacional", "Registro de inspección"],
+    });
+  }
+
+  if (!areaDelimited) {
+    missing.push("Demarcación / aislamiento del área");
+    actions.push({
+      priority: "high",
+      category: "engineering",
+      action: "Instalar barreras, cinta o delimitación del área de trabajo.",
+      evidence: ["Área señalizada y restringida"],
+    });
+    derived_controls.engineering.push("Demarcación y aislamiento del área de trabajo");
+  }
+/* bloque 11
+if (workAtHeight) {
+    derived_controls.ppe.push("Uso de arnés certificado con sistema de detención de caídas");
+    derived_controls.engineering.push("Instalar línea de vida o punto de anclaje certificado");
+    derived_controls.administrative.push("Verificar permiso y personal autorizado para trabajo en alturas");
+
+    if (!rescuePlan) {
+      critical_fails.push("Trabajo en alturas sin plan de rescate");
+      actions.push({
+        priority: "critical",
+        category: "administrative",
+        action: "Definir y socializar plan de rescate antes del inicio.",
+        evidence: ["Plan de rescate disponible", "Brigada o respuesta definida"],
+      });
+    }
+
+    if (!certifiedPersonnel) {
+      critical_fails.push("Trabajo en alturas con personal no certificado");
+      actions.push({
+        priority: "critical",
+        category: "administrative",
+        action: "Asegurar personal certificado y autorizado para trabajo en alturas.",
+        evidence: ["Certificados vigentes", "Autorización interna"],
+      });
     }
   }
 
-  // ✅ Si incidentes != "Si", limpiar la lección aprendida
-  useEffect(() => {
-    if (incidentsReference !== "Si") {
-      clearLessonLearned();
+  if (confinedSpace) {
+    derived_controls.administrative.push("Aplicar permiso de espacio confinado");
+    derived_controls.engineering.push("Ventilación del espacio y control de acceso");
+    derived_controls.ppe.push("EPP según monitoreo atmosférico y riesgo específico");
+
+    if (!gasTestOk) {
+      critical_fails.push("Espacio confinado sin prueba de gases aceptable");
+      actions.push({
+        priority: "critical",
+        category: "administrative",
+        action: "Realizar prueba de gases y validar condiciones seguras antes de ingresar.",
+        evidence: ["Registro de monitoreo atmosférico"],
+      });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incidentsReference]);
 
-  /* =========================
-     ✅ PASO 4: PDF/PRINT (react-to-print v3)
-  ========================= */
-  const printRef = useRef<HTMLDivElement>(null);
+    if (!rescuePlan) {
+      critical_fails.push("Espacio confinado sin plan de rescate");
+      actions.push({
+        priority: "critical",
+        category: "administrative",
+        action: "Definir plan de rescate específico para espacio confinado.",
+        evidence: ["Plan de rescate", "Equipos disponibles"],
+      });
+    }
+  }
+/*bloque12
+if (liftingOps) {
+    derived_controls.administrative.push("Aplicar plan de izaje y roles definidos");
+    derived_controls.engineering.push("Usar accesorios certificados y zona de exclusión");
+    derived_controls.ppe.push("Casco con barbuquejo y calzado de seguridad");
 
-  const fileTitle = useMemo(() => {
-    const t = String(atsResult?.meta?.title || jobTitle || "Trabajo")
-      .trim()
-      .replace(/\s+/g, "_");
-    const d =
-      String(atsResult?.meta?.date || formatDateEsCOFromISO(executionDateISO) || "")
-        .trim()
-        .replace(/\//g, "-") || "";
-    return `ATS_${t}${d ? `_${d}` : ""}`;
-  }, [atsResult, jobTitle, executionDateISO]);
+    if (!certifiedPersonnel) {
+      critical_fails.push("Izaje con personal no competente/certificado");
+      actions.push({
+        priority: "critical",
+        category: "administrative",
+        action: "Validar operador, aparejador o señalero competente antes del izaje.",
+        evidence: ["Certificados", "Autorización", "Inspección documental"],
+      });
+    }
+  }
 
-  const handlePrintToPdf = useReactToPrint({
-    contentRef: printRef,
-    documentTitle: fileTitle,
-    pageStyle: `
-      @page { size: A4; margin: 10mm; }
-      @media print {
-        html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        .no-print { display: none !important; }
-        .print-only { display: block !important; }
-      }
-    `,
-    onPrintError: (_location, error) => {
-      setUiError(`Error al imprimir: ${String((error as any)?.message || error)}`);
+  if (lineOpening) {
+    derived_controls.administrative.push("Aplicar procedimiento de apertura de líneas");
+    derived_controls.engineering.push("Verificar despresurización, drenaje y bridas ciegas si aplica");
+    derived_controls.ppe.push("Protección facial, guantes y ropa de protección según sustancia");
+
+    if (!hasIsolation) {
+      critical_fails.push("Apertura de línea sin aislamiento verificado");
+      actions.push({
+        priority: "critical",
+        category: "engineering",
+        action: "Aislar, bloquear y confirmar cero energía / cero presión antes de abrir.",
+        evidence: ["LOTO aplicado", "Verificación de cero energía", "Purgado/drenado"],
+      });
+    }
+  }
+
+  if (energizedWork) {
+    derived_controls.administrative.push("Aplicar permiso y análisis específico para trabajo energizado");
+    derived_controls.engineering.push("Aislamiento, barreras y control de aproximación");
+    derived_controls.ppe.push("EPP dieléctrico / arco eléctrico según evaluación");
+
+    if (!hasIsolation) {
+      critical_fails.push("Trabajo energizado sin control de aislamiento suficiente");
+      actions.push({
+        priority: "critical",
+        category: "engineering",
+        action: "Implementar aislamiento eléctrico o justificar formalmente trabajo energizado.",
+        evidence: ["Esquema de aislamiento", "Autorización", "Evaluación de riesgo eléctrico"],
+      });
+    }
+  }
+/*bloque13
+if (hotWork) {
+    derived_controls.administrative.push("Aplicar permiso de trabajo en caliente");
+    derived_controls.engineering.push("Retiro de combustibles, pantallas y extintores disponibles");
+    derived_controls.ppe.push("Careta, guantes y ropa resistente a proyecciones/chispas");
+
+    if (!areaDelimited) {
+      actions.push({
+        priority: "high",
+        category: "engineering",
+        action: "Establecer perímetro y controlar exposición a chispas o radiación.",
+        evidence: ["Barreras", "Pantallas", "Señalización"],
+      });
+    }
+  }
+
+  if (!weatherOk) {
+    actions.push({
+      priority: "medium",
+      category: "administrative",
+      action: "Reevaluar condiciones climáticas antes de iniciar o continuar la tarea.",
+      evidence: ["Registro de clima", "Verificación del supervisor"],
+    });
+  }
+
+  let decision_hint: ATSChecklistDecisionHint = "CONTINUE";
+
+  if (critical_fails.length > 0) {
+    decision_hint = "STOP";
+  } else if (missing.length > 0 || actions.some((a) => a.priority === "high")) {
+    decision_hint = "REVIEW_REQUIRED";
+  }
+
+  return {
+    decision_hint,
+    missing: uniqueStrings(missing),
+    critical_fails: uniqueStrings(critical_fails),
+    derived_controls: {
+      engineering: uniqueStrings(derived_controls.engineering),
+      administrative: uniqueStrings(derived_controls.administrative),
+      ppe: uniqueStrings(derived_controls.ppe),
     },
-  });
+    actions,
+    snapshot,
+  };
+}
+/*bloque14
+function buildStopWork(
+  hazards: string[],
+  controls: ATS["controls"],
+  checklist?: ATSChecklistActions
+): ATSStopWork {
+  const hz = (hazards || []).map((h) => normalizeText(h));
 
-  async function handleCopyATS() {
-    try {
-      if (!atsResult) return;
-      await navigator.clipboard.writeText(JSON.stringify(atsResult, null, 2));
-      setUiInfo("✅ ATS copiado al portapapeles.");
-      setUiError(null);
-    } catch (e: any) {
-      setUiError(`No se pudo copiar: ${String(e?.message || e)}`);
-    }
-  }
+  const auto_triggers: string[] = [];
+  const criteria: string[] = [];
+  let rationale = "Condiciones dentro de parámetros aceptables con controles definidos.";
+  let decision: ATSStopWork["decision"] = "CONTINUE";
 
-  function openFilePicker() {
-    fileInputRef.current?.click();
-  }
-
-  function addFiles(files: File[]) {
-    const allowed = files.filter(isPdfOrDocx);
-    if (allowed.length === 0) {
-      setUiError("Solo se aceptan archivos PDF o DOCX.");
-      return;
-    }
-
-    setSelectedFiles((prev) => {
-      const existing = new Set(prev.map(fileKey));
-      const merged = [...prev];
-      for (const f of allowed) {
-        if (!existing.has(fileKey(f))) merged.push(f);
-      }
-      return merged;
-    });
-
-    setUiError(null);
-    setUiInfo(`${allowed.length} archivo(s) agregado(s).`);
-  }
-
-  function removeFile(idx: number) {
-    setSelectedFiles((prev) => {
-      const next = [...prev];
-      next.splice(idx, 1);
-      return next;
-    });
-  }
-
-  function clearAllFiles() {
-    setSelectedFiles([]);
-    setProcedureRefs([]);
-    setProcedureResults([]);
-    setAtsResult(null);
-    setOpenSteps({});
-    setUiInfo("Archivos limpiados.");
-    setUiError(null);
-  }
-
-  async function uploadSingleProcedure(file: File): Promise<ProcedureResult> {
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const res = await fetch("/api/procedure-brief", {
-        method: "POST",
-        body: formData,
-      });
-
-      const text = await res.text();
-      if (!res.ok) {
-        return {
-          ok: false,
-          fileName: file.name,
-          error: "Error en /api/procedure-brief",
-          details: `HTTP ${res.status}: ${text}`,
-        };
-      }
-
-      const parsed = safeJsonParse<any>(text);
-      if (!parsed.ok) {
-        return {
-          ok: false,
-          fileName: file.name,
-          error: "Respuesta no es JSON",
-          details: parsed.error,
-        };
-      }
-
-      const proc = parsed.value?.procedure_ref;
-      if (!proc || typeof proc !== "object") {
-        return {
-          ok: false,
-          fileName: file.name,
-          error: "Respuesta inválida",
-          details: "No llegó procedure_ref",
-        };
-      }
-
-      return { ok: true, fileName: file.name, procedure: proc };
-    } catch (err: any) {
-      return {
-        ok: false,
-        fileName: file.name,
-        error: "Excepción subiendo procedimiento",
-        details: String(err?.message || err),
-      };
-    }
-  }
-
-  async function handleUploadProcedures() {
-    setUiError(null);
-    setUiInfo(null);
-
-    if (!selectedFiles.length) {
-      setUiError("Selecciona al menos 1 archivo PDF o DOCX.");
-      return;
-    }
-
-    setUploading(true);
-    setProcedureResults([]);
-    setProcedureRefs([]);
-    setAtsResult(null);
-    setOpenSteps({});
-
-    try {
-      const results: ProcedureResult[] = [];
-      const procs: ProcedureRef[] = [];
-
-      for (const file of selectedFiles) {
-        const r = await uploadSingleProcedure(file);
-        results.push(r);
-        if (r.ok && r.procedure) procs.push(r.procedure);
-
-        setProcedureResults([...results]);
-        setProcedureRefs([...procs]);
-      }
-
-      const okCount = procs.length;
-      const failCount = results.filter((r) => !r.ok).length;
-
-      if (okCount === 0) {
-        setUiError("Se procesaron archivos, pero no se extrajo ningún procedimiento válido.");
-      } else {
-        setUiInfo(`Procedimientos listos: ${okCount}. Fallidos: ${failCount}.`);
-      }
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  /** Validación (incluye tus campos clave + generación) */
-  const missingReasons = useMemo(() => {
-    const reasons: string[] = [];
-
-    if (!jobTitle.trim()) reasons.push("Falta Actividad/Trabajo.");
-    if (!company.trim()) reasons.push("Falta Empresa.");
-    if (!location.trim()) reasons.push("Falta Ubicación.");
-    if (!dateISO) reasons.push("Falta Fecha (meta).");
-    if (!shift.trim()) reasons.push("Falta Turno/Jornada.");
-
-    if (!lifting && !hotWork && !workAtHeight) {
-      reasons.push("Selecciona al menos una condición (Izaje / Caliente / Alturas).");
-    }
-
-    if (selectedFiles.length === 0) reasons.push("No has seleccionado archivos.");
-    if (procedureRefs.length === 0) reasons.push("No has procesado procedimientos (o quedaron en 0).");
-
-    // Campos del formato (mínimos sugeridos)
-    if (!executionDateISO) reasons.push("Falta Fecha de ejecución (Formato Estrella).");
-    if (!elaborationDateISO) reasons.push("Falta Fecha de elaboración (Formato Estrella).");
-
-    // ✅ si incidentes = Sí, exigir lección aprendida procesada
-    if (incidentsReference === "Si") {
-      if (!lessonResult?.lesson_learned_brief) {
-        reasons.push("Incidentes = Sí → Debes cargar y procesar una Lección aprendida (PDF/DOCX).");
-      }
-      if (lessonUploading) reasons.push("Espera: lección aprendida en procesamiento.");
-    }
-
-    if (uploading) reasons.push("Espera: procedimientos en procesamiento.");
-    if (generatingATS) reasons.push("Espera: ATS generándose.");
-
-    return reasons;
-  }, [
-    jobTitle,
-    company,
-    location,
-    dateISO,
-    shift,
-    lifting,
-    hotWork,
-    workAtHeight,
-    selectedFiles.length,
-    procedureRefs.length,
-    uploading,
-    generatingATS,
-    executionDateISO,
-    elaborationDateISO,
-    incidentsReference,
-    lessonResult,
-    lessonUploading,
-  ]);
-
-  const canGenerateATS = useMemo(() => missingReasons.length === 0, [missingReasons]);
-
-  async function handleGenerateATS() {
-    setUiError(null);
-    setUiInfo(null);
-
-    if (!canGenerateATS) {
-      setUiError("No se puede generar ATS aún. Revisa los faltantes.");
-      return;
-    }
-
-    setGeneratingATS(true);
-    setAtsResult(null);
-    setOpenSteps({});
-
-    try {
-      const envSanitized = sanitizeEnvironment(environment);
-      const normative_refs = parseNormativeRefs(normativeRefsText);
-
-      const payload: any = {
-        jobTitle: jobTitle.trim(),
-        company: company.trim(),
-        location: location.trim(),
-        date: formatDateEsCOFromISO(dateISO),
-        shift: shift.trim(),
-        lifting,
-        hotWork,
-        workAtHeight,
-        environment: envSanitized,
-        procedure_refs: procedureRefs,
-
-        // ✅ NUEVO: normas opcionales
-        normative_refs,
-        normative_refs_text: normativeRefsText?.trim() || "",
-
-        estrella_format: {
-          atsNumber: atsNumber.trim(),
-          permitNumber: permitNumber.trim(),
-          elaborationDate: formatDateEsCOFromISO(elaborationDateISO),
-          executionDate: formatDateEsCOFromISO(executionDateISO),
-          version: formatVersion.trim(),
-          procedureCodeRelated: procedureCodeRelated.trim(),
-          workFront: workFront.trim(),
-          incidentsReference,
-          otherCompanies,
-          dangerTypes,
-          dangerTypesOther: dangerTypesOther.trim(),
-          environmentDangers,
-          environmentDangersOther: environmentDangersOther.trim(),
-          emergencies,
-          safetyEquipment,
-          safetyEquipmentOther: safetyEquipmentOther.trim(),
-          lifeSavingRules,
-          authorizations: {
-            executants,
-            supervisor: {
-              name: supervisorName.trim(),
-              role: supervisorRole.trim(),
-              signature: supervisorSignature.trim(),
-              checks: {
-                stagesClarity: checkStagesClarity,
-                hazardsControlled: checkHazardsControlled,
-                isolationConfirmed: checkIsolationConfirmed,
-                commsAgreed: checkCommsAgreed,
-                toolsOk: checkToolsOk,
-              },
-            },
-            approver: {
-              name: approverName.trim(),
-              signature: approverSignature.trim(),
-            },
-          },
-        },
-      };
-
-      // ✅ adjuntar lesson_learned_brief al generar ATS
-      if (incidentsReference === "Si" && lessonResult?.lesson_learned_brief) {
-        payload.lesson_learned_brief = lessonResult.lesson_learned_brief;
-      }
-
-      const res = await fetch("/api/generate-ats", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const text = await res.text();
-
-      if (!res.ok) {
-        setUiError(`Error generando ATS (HTTP ${res.status}): ${text}`);
-        return;
-      }
-
-      const parsed = safeJsonParse<any>(text);
-      if (!parsed.ok) {
-        setUiError(`Respuesta no JSON: ${parsed.error}`);
-        return;
-      }
-
-      const ats = parsed.value?.ats ?? parsed.value;
-      setAtsResult(ats);
-      setUiInfo("✅ ATS generado correctamente.");
-    } catch (err: any) {
-      setUiError(`Excepción generando ATS: ${String(err?.message || err)}`);
-    } finally {
-      setGeneratingATS(false);
-    }
-  }
-
-  /* =========================
-     STOP WORK + PROCEDIMIENTOS
-  ========================= */
-  const decision: string | undefined = atsResult?.stop_work?.decision;
-  const decisionBadge = badgeForDecision(decision);
-  const decisionSectionCls = sectionColorForDecision(decision);
-
-  const appliedProcedures: ATSProcedureMini[] =
-    atsResult?.procedure_influence?.applied ?? atsResult?.procedure_refs_used ?? [];
-
-  const notParseableProcedures: ATSProcedureMini[] =
-    atsResult?.procedure_influence?.not_parseable ?? [];
-
-  /* Normalizaciones display */
-  const hazardsList = uniqueNonEmpty(atsResult?.hazards);
-  const ctrlEng = uniqueNonEmpty(atsResult?.controls?.engineering);
-  const ctrlAdm = uniqueNonEmpty(atsResult?.controls?.administrative);
-  const ctrlPpe = uniqueNonEmpty(atsResult?.controls?.ppe);
-  const stepsList: ATS["steps"] = Array.isArray(atsResult?.steps) ? atsResult.steps : [];
-
-  const execDatePrint = formatDateEsCOFromISO(executionDateISO);
-  const elabDatePrint = formatDateEsCOFromISO(elaborationDateISO);
-
-  // ✅ Checklist del backend
-  const checklist: ATSChecklistActions | null =
-    (atsResult?.checklist_actions as ATSChecklistActions) ?? null;
-
-  // ✅ Normas para mostrar (de UI o backend)
-  const normativeFromUI = useMemo(() => parseNormativeRefs(normativeRefsText), [normativeRefsText]);
-  const normativeFromATS = uniqueNonEmpty(
-    atsResult?.normative_refs_used ?? atsResult?.normative_refs ?? []
-  );
-  const normativeToShow = uniqueNonEmpty([...normativeFromUI, ...normativeFromATS]);
-
-  // ✅ Helpers para cajitas en PDF
-  const box = (checked: boolean) => (checked ? "X" : " ");
-  const boxByVal = (val: string, target: "SI" | "NO" | "N.A.") => box(val === target);
-
-  // ✅ Resumen “preturno”
-  const topHazards = hazardsList.slice(0, 8);
-  const topControls = uniqueNonEmpty([...ctrlEng, ...ctrlAdm, ...ctrlPpe]).slice(0, 10);
-  const topSteps = stepsList.slice(0, 6);
-
-  // ✅ Lista verificación supervisión
-  const supervisionChecklistRows = [
-    "ATS socializado con todo el equipo (charla preturno realizada).",
-    "Roles y responsabilidades definidos (líder, señalero, vigía, etc.).",
-    "Área demarcada y control de accesos implementado.",
-    "Permisos requeridos verificados y vigentes (si aplica).",
-    "Aislamiento de energías (LOTO/EMN) verificado si aplica.",
-    "EPP correcto disponible y en buen estado.",
-    "Herramientas/equipos inspeccionados y aptos para uso.",
-    "Plan de emergencias y comunicación verificados (rutas, puntos, radios/teléfono).",
+  const highRiskHazards = [
+    "caida de altura",
+    "caida de objetos",
+    "atrapamiento",
+    "espacio confinado",
+    "energia peligrosa",
+    "electrico",
+    "explosion",
+    "incendio",
+    "presion",
+    "linea presurizada",
+    "izaje",
   ];
 
+  const foundHighRisk = hz.some((h) =>
+    highRiskHazards.some((r) => h.includes(r))
+  );
+
+  if (foundHighRisk) {
+    criteria.push("Existen peligros de alto potencial en la tarea.");
+  }
+
+  const totalControls =
+    (controls?.engineering?.length || 0) +
+    (controls?.administrative?.length || 0) +
+    (controls?.ppe?.length || 0);
+
+  if (totalControls === 0) {
+    auto_triggers.push("No se identificaron controles.");
+  }
+
+  if (checklist?.critical_fails?.length) {
+    auto_triggers.push(...checklist.critical_fails);
+  }
+
+  if (auto_triggers.length > 0) {
+    decision = "STOP";
+    rationale =
+      "Se identificaron condiciones críticas no controladas que impiden iniciar o continuar la tarea.";
+  } else if (
+    checklist?.decision_hint === "REVIEW_REQUIRED" ||
+    (foundHighRisk && totalControls < 3)
+  ) {
+    decision = "REVIEW_REQUIRED";
+    rationale =
+      "La tarea requiere validación adicional antes de continuar por presencia de peligros relevantes o controles insuficientes.";
+  }
+
+  if (checklist?.missing?.length) {
+    criteria.push(...checklist.missing.map((m) => `Pendiente: ${m}`));
+  }
+
+  return {
+    decision,
+    auto_triggers: uniqueStrings(auto_triggers),
+    criteria: uniqueStrings(criteria),
+    rationale,
+  };
+}
+/*bloque15
+function extractRecommendationsFlexible(data: any): ATSRecommendations {
+  if (!data || typeof data !== "object") return {};
+
+  const candidate =
+    data?.recommendations ||
+    data?.ai_recommendations ||
+    data?.controls_recommendations ||
+    data?.suggestions ||
+    data;
+
+  return {
+    controls: {
+      engineering: safeArray(candidate?.controls?.engineering),
+      administrative: safeArray(candidate?.controls?.administrative),
+      ppe: safeArray(candidate?.controls?.ppe),
+    },
+    recommendations: safeArray(candidate?.recommendations),
+    notes: safeArray(candidate?.notes),
+  };
+}
+
+function buildFinalATS(args: {
+  meta: ATS["meta"];
+  environment: any;
+  hazards: string[];
+  baseControls: ATS["controls"];
+  procedures: ProcedureRef[];
+  steps: ATS["steps"];
+  normativeRefs?: string[];
+  aiData?: any;
+  checklistSnapshot?: any;
+}): ATS {
+  const procedure_influence = buildProcedureInfluence(args.procedures || []);
+  const groupedDerived = groupDerivedControls(procedure_influence.derived_controls);
+  const checklist_actions = buildChecklistActions(args.checklistSnapshot || {});
+  const recommendations = extractRecommendationsFlexible(args.aiData);
+
+  const controls: ATS["controls"] = {
+    engineering: uniqueStrings(
+      mergeUnique(
+        mergeUnique(args.baseControls.engineering || [], groupedDerived.engineering),
+        safeArray(recommendations?.controls?.engineering)
+      )
+    ),
+    administrative: uniqueStrings(
+      mergeUnique(
+        mergeUnique(args.baseControls.administrative || [], groupedDerived.administrative),
+        safeArray(recommendations?.controls?.administrative)
+      )
+    ),
+    ppe: uniqueStrings(
+      mergeUnique(
+        mergeUnique(args.baseControls.ppe || [], groupedDerived.ppe),
+        safeArray(recommendations?.controls?.ppe)
+      )
+    ),
+  };
+/*bloque 16
+controls.engineering = uniqueStrings(
+    mergeUnique(controls.engineering, checklist_actions.derived_controls.engineering)
+  );
+  controls.administrative = uniqueStrings(
+    mergeUnique(
+      controls.administrative,
+      checklist_actions.derived_controls.administrative
+    )
+  );
+  controls.ppe = uniqueStrings(
+    mergeUnique(controls.ppe, checklist_actions.derived_controls.ppe)
+  );
+
+  const stop_work = buildStopWork(args.hazards, controls, checklist_actions);
+
+  return {
+    meta: args.meta,
+    environment: args.environment,
+    hazards: uniqueStrings(args.hazards || []),
+    controls,
+    steps: args.steps || [],
+    stop_work,
+    procedure_refs_used: (args.procedures || [])
+      .filter((p) => p?.parseable !== false)
+      .map(asProcedureMini),
+    procedure_influence,
+    checklist_actions,
+    normative_refs: uniqueStrings(args.normativeRefs || []),
+    normative_refs_used: uniqueStrings(args.normativeRefs || []),
+    recommendations,
+    ai_recommendations: recommendations,
+    suggestions: recommendations,
+    controls_recommendations: recommendations,
+  };
+}
+
+export default function ATSInteligentePage() {
+  const printRef = useRef<HTMLDivElement>(null);
+
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: "ATS_Inteligente",
+  });
+/*bloque17
+const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>("");
+  const [rawAiResponse, setRawAiResponse] = useState<string>("");
+
+  const [company, setCompany] = useState("Estrella International Energy Services");
+  const [title, setTitle] = useState("Análisis de Trabajo Seguro");
+  const [location, setLocation] = useState("");
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [shift, setShift] = useState("Día");
+
+  const [timeOfDay, setTimeOfDay] = useState("");
+  const [weather, setWeather] = useState("");
+  const [temperatureC, setTemperatureC] = useState<string>("");
+  const [humidityPct, setHumidityPct] = useState<string>("");
+  const [wind, setWind] = useState("");
+  const [lighting, setLighting] = useState("");
+  const [terrain, setTerrain] = useState("");
+  const [visibility, setVisibility] = useState("");
+
+  const [hazardsText, setHazardsText] = useState("");
+  const [engineeringControlsText, setEngineeringControlsText] = useState("");
+  const [administrativeControlsText, setAdministrativeControlsText] = useState("");
+  const [ppeControlsText, setPpeControlsText] = useState("");
+
+  const [stepsText, setStepsText] = useState("");
+  const [normativeRefsText, setNormativeRefsText] = useState("");
+
+  const [workAtHeight, setWorkAtHeight] = useState(false);
+  const [confinedSpace, setConfinedSpace] = useState(false);
+  const [liftingOps, setLiftingOps] = useState(false);
+  const [lineOpening, setLineOpening] = useState(false);
+  const [energizedWork, setEnergizedWork] = useState(false);
+  const [hotWork, setHotWork] = useState(false);
+/*bloque18
+const [permitApproved, setPermitApproved] = useState(false);
+  const [isolated, setIsolated] = useState(false);
+  const [gasTestOk, setGasTestOk] = useState(false);
+  const [rescuePlan, setRescuePlan] = useState(false);
+  const [certifiedPersonnel, setCertifiedPersonnel] = useState(false);
+  const [ppeVerified, setPpeVerified] = useState(false);
+  const [toolsInspected, setToolsInspected] = useState(false);
+  const [areaDelimited, setAreaDelimited] = useState(false);
+  const [weatherOk, setWeatherOk] = useState(true);
+
+  const [procedureFiles, setProcedureFiles] = useState<File[]>([]);
+  const [procedureResults, setProcedureResults] = useState<ProcedureResult[]>([]);
+
+  const [atsResult, setAtsResult] = useState<ATS | null>(null);
+
+  const baseEnvironment: Environment = useMemo(
+    () => ({
+      timeOfDay: timeOfDay || null,
+      weather: weather || null,
+      temperatureC: temperatureC ? Number(temperatureC) : null,
+      humidityPct: humidityPct ? Number(humidityPct) : null,
+      wind: wind || null,
+      lighting: lighting || null,
+      terrain: terrain || null,
+      visibility: visibility || null,
+    }),
+    [
+      timeOfDay,
+      weather,
+      temperatureC,
+      humidityPct,
+      wind,
+      lighting,
+      terrain,
+      visibility,
+    ]
+  );
+/* Bloque19
+const checklistSnapshot = useMemo(
+    () => ({
+      workAtHeight,
+      confinedSpace,
+      liftingOps,
+      lineOpening,
+      energizedWork,
+      hotWork,
+      permitApproved,
+      isolated,
+      gasTestOk,
+      rescuePlan,
+      certifiedPersonnel,
+      ppeVerified,
+      toolsInspected,
+      areaDelimited,
+      weatherOk,
+    }),
+    [
+      workAtHeight,
+      confinedSpace,
+      liftingOps,
+      lineOpening,
+      energizedWork,
+      hotWork,
+      permitApproved,
+      isolated,
+      gasTestOk,
+      rescuePlan,
+      certifiedPersonnel,
+      ppeVerified,
+      toolsInspected,
+      areaDelimited,
+      weatherOk,
+    ]
+  );
+
+  const parsedHazards = useMemo(
+    () => uniqueStrings(splitLines(hazardsText)),
+    [hazardsText]
+  );
+
+  const parsedBaseControls = useMemo(
+    () => ({
+      engineering: uniqueStrings(splitLines(engineeringControlsText)),
+      administrative: uniqueStrings(splitLines(administrativeControlsText)),
+      ppe: uniqueStrings(splitLines(ppeControlsText)),
+    }),
+    [engineeringControlsText, administrativeControlsText, ppeControlsText]
+  );
+/*bloque20
+const parsedSteps = useMemo(() => {
+    const lines = splitLines(stepsText);
+
+    return lines.map((line) => ({
+      step: line,
+      hazards: [],
+      controls: [],
+    }));
+  }, [stepsText]);
+
+  const parsedNormativeRefs = useMemo(
+    () => uniqueStrings(splitLines(normativeRefsText)),
+    [normativeRefsText]
+  );
+
+  async function readFileAsText(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = reject;
+      reader.readAsText(file);
+    });
+  }
+/*bloque21
+async function processProcedureFiles(files: File[]): Promise<ProcedureResult[]> {
+    const results: ProcedureResult[] = [];
+
+    for (const file of files) {
+      try {
+        const text = await readFileAsText(file);
+        const maybeJson = extractJsonFromText(text);
+
+        if (maybeJson && typeof maybeJson === "object") {
+          results.push({
+            ok: true,
+            fileName: file.name,
+            procedure: {
+              ...maybeJson,
+              title:
+                maybeJson?.title ||
+                maybeJson?.nombre ||
+                maybeJson?.procedure ||
+                file.name,
+              code:
+                maybeJson?.code ||
+                maybeJson?.codigo ||
+                maybeJson?.id ||
+                "N/A",
+              origin: file.name,
+              parseable: true,
+            },
+          });
+        } else {
+          results.push({
+            ok: true,
+            fileName: file.name,
+            procedure: {
+              title: file.name,
+              code: "N/A",
+              origin: file.name,
+              parseable: true,
+              content: text,
+            },
+          });
+        }
+      } catch (e: any) {
+        results.push({
+          ok: false,
+          fileName: file.name,
+          error: "No fue posible leer el archivo",
+          details: String(e?.message || e || ""),
+        });
+      }
+    }
+
+    return results;
+  }
+/*bloque22
+async function handleProcedureUpload(
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const files = Array.from(e.target.files || []);
+    setProcedureFiles(files);
+
+    if (!files.length) {
+      setProcedureResults([]);
+      return;
+    }
+
+    const results = await processProcedureFiles(files);
+    setProcedureResults(results);
+  }
+
+  async function callAiForATS(payload: any): Promise<any> {
+    const res = await fetch("/api/ats-inteligente", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const text = await res.text();
+    setRawAiResponse(text);
+
+    const maybeJson = extractJsonFromText(text);
+
+    if (!res.ok) {
+      throw new Error(
+        maybeJson?.error || text || "Error al consultar el servicio de IA"
+      );
+    }
+
+    return maybeJson || {};
+  }
+/*bloque23
+async function generateATS() {
+    setLoading(true);
+    setError("");
+
+    try {
+      const procedures = procedureResults
+        .filter((r) => r.ok && r.procedure)
+        .map((r) => r.procedure as ProcedureRef);
+
+      const meta = {
+        title,
+        company,
+        location,
+        date,
+        shift,
+      };
+
+      const payload = {
+        meta,
+        environment: baseEnvironment,
+        hazards: parsedHazards,
+        controls: parsedBaseControls,
+        steps: parsedSteps,
+        procedure_refs: procedures,
+        normative_refs: parsedNormativeRefs,
+        checklist: checklistSnapshot,
+      };
+
+      const aiData = await callAiForATS(payload);
+
+      const finalATS = buildFinalATS({
+        meta,
+        environment: baseEnvironment,
+        hazards: parsedHazards,
+        baseControls: parsedBaseControls,
+        procedures,
+        steps: parsedSteps,
+        normativeRefs: parsedNormativeRefs,
+        aiData,
+        checklistSnapshot,
+      });
+
+      setAtsResult(finalATS);
+    } catch (e: any) {
+      setError(String(e?.message || e || "Error inesperado"));
+    } finally {
+      setLoading(false);
+    }
+  }
+/*bloque24
+function resetForm() {
+    setError("");
+    setRawAiResponse("");
+    setAtsResult(null);
+
+    setLocation("");
+    setTimeOfDay("");
+    setWeather("");
+    setTemperatureC("");
+    setHumidityPct("");
+    setWind("");
+    setLighting("");
+    setTerrain("");
+    setVisibility("");
+
+    setHazardsText("");
+    setEngineeringControlsText("");
+    setAdministrativeControlsText("");
+    setPpeControlsText("");
+    setStepsText("");
+    setNormativeRefsText("");
+
+    setWorkAtHeight(false);
+    setConfinedSpace(false);
+    setLiftingOps(false);
+    setLineOpening(false);
+    setEnergizedWork(false);
+    setHotWork(false);
+
+    setPermitApproved(false);
+    setIsolated(false);
+    setGasTestOk(false);
+    setRescuePlan(false);
+    setCertifiedPersonnel(false);
+    setPpeVerified(false);
+    setToolsInspected(false);
+    setAreaDelimited(false);
+    setWeatherOk(true);
+
+    setProcedureFiles([]);
+    setProcedureResults([]);
+  }
+
+  const checklistPreview = useMemo(
+    () => buildChecklistActions(checklistSnapshot),
+    [checklistSnapshot]
+  );
+/*bloque25
+const stopBadgeClass =
+    atsResult?.stop_work?.decision === "STOP"
+      ? "bg-red-100 text-red-800 border-red-300"
+      : atsResult?.stop_work?.decision === "REVIEW_REQUIRED"
+      ? "bg-yellow-100 text-yellow-800 border-yellow-300"
+      : "bg-green-100 text-green-800 border-green-300";
+
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
-      <h1 className="text-3xl font-semibold no-print">ATS Inteligente</h1>
-
-      {/* ✅ ACCIONES */}
-      <div className="no-print flex flex-wrap items-center gap-2">
-        <button
-          onClick={handleCopyATS}
-          disabled={!atsResult}
-          className="px-4 py-2 border rounded disabled:opacity-50"
-        >
-          Copiar ATS (JSON)
-        </button>
-      </div>
-
-      {/* UI mensajes */}
-      {(uiError || uiInfo) && (
-        <div
-          className={[
-            "border rounded p-3 text-sm",
-            uiError
-              ? "bg-red-50 border-red-200 text-red-800"
-              : "bg-green-50 border-green-200 text-green-800",
-          ].join(" ")}
-        >
-          {uiError ?? uiInfo}
-        </div>
-      )}
-
-      {/* =========================
-         FORMATO ESTRELLA - DATOS GENERALES (PANTALLA)
-      ========================= */}
-      <section className="no-print border rounded p-4 space-y-4">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <div className="mx-auto max-w-7xl px-4 py-6">
+        <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <div className="text-xs text-neutral-600">Gestión de HSSEQ</div>
-            <div className="text-lg font-semibold">Análisis de Trabajo Seguro</div>
-            <div className="text-xs text-neutral-600">
-              Formato: <b>02-01-102-F001</b> · Revisión: <b>07</b> · Emisión: <b>04/09/2024</b>
-            </div>
-          </div>
-          <div className="text-xs text-neutral-600">
-            Página: <b>1 de 1</b>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <input
-            placeholder="N° ATS"
-            value={atsNumber}
-            onChange={(e) => setAtsNumber(e.target.value)}
-            className="border p-2 rounded"
-          />
-          <input
-            placeholder="N° Permiso de trabajo"
-            value={permitNumber}
-            onChange={(e) => setPermitNumber(e.target.value)}
-            className="border p-2 rounded"
-          />
-          <input
-            placeholder="Versión"
-            value={formatVersion}
-            onChange={(e) => setFormatVersion(e.target.value)}
-            className="border p-2 rounded"
-          />
-          <div className="grid grid-cols-1 gap-2">
-            <label className="text-xs text-neutral-600">Fecha de elaboración</label>
-            <input
-              type="date"
-              value={elaborationDateISO}
-              onChange={(e) => setElaborationDateISO(e.target.value)}
-              className="border p-2 rounded"
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-2">
-            <label className="text-xs text-neutral-600">Fecha de ejecución</label>
-            <input
-              type="date"
-              value={executionDateISO}
-              onChange={(e) => setExecutionDateISO(e.target.value)}
-              className="border p-2 rounded"
-            />
-          </div>
-          <input
-            placeholder="Frente de trabajo"
-            value={workFront}
-            onChange={(e) => setWorkFront(e.target.value)}
-            className="border p-2 rounded"
-          />
-          <input
-            placeholder="Código del procedimiento relacionado"
-            value={procedureCodeRelated}
-            onChange={(e) => setProcedureCodeRelated(e.target.value)}
-            className="border p-2 rounded md:col-span-2"
-          />
-        </div>
-
-        {/* ✅ NUEVO: Referencias normativas (OPCIONAL) */}
-        <div className="border rounded p-3 bg-neutral-50">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <div className="font-medium">Referencias normativas (opcional)</div>
-              <div className="text-xs text-neutral-600 mt-1">
-                Escribe una por línea (ej: Resolución 4272/2021, Decreto 1072/2015, ISO 45001, API 6A…)
-              </div>
-            </div>
-            <div className="text-xs text-neutral-600">
-              {parseNormativeRefs(normativeRefsText).length} referencia(s)
-            </div>
+            <h1 className="text-2xl font-bold">ATS Inteligente</h1>
+            <p className="text-sm text-slate-600">
+              Generación de análisis de trabajo seguro con soporte de IA,
+              checklist crítico y consolidación de controles.
+            </p>
           </div>
 
-          <textarea
-            value={normativeRefsText}
-            onChange={(e) => setNormativeRefsText(e.target.value)}
-            placeholder={`Ej:\nResolución 4272 de 2021 (Trabajo en alturas)\nDecreto 1072 de 2015\nISO 45001:2018\nAPI 6A`}
-            className="border p-2 rounded w-full mt-3 min-h-[110px] text-sm"
-          />
-
-          {parseNormativeRefs(normativeRefsText).length > 0 && (
-            <div className="mt-2 text-sm">
-              <div className="font-medium text-xs text-neutral-600">Vista previa</div>
-              <ul className="list-disc pl-5 mt-1">
-                {parseNormativeRefs(normativeRefsText).map((n, i) => (
-                  <li key={i}>{n}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <div className="border rounded p-3">
-            <div className="font-medium">Incidentes en trabajos similares</div>
-            <div className="mt-2 flex gap-4">
-              {(["Si", "No"] as const).map((v) => (
-                <label key={v} className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="incidentsReference"
-                    checked={incidentsReference === v}
-                    onChange={() => setIncidentsReference(v)}
-                  />
-                  {v}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div className="border rounded p-3">
-            <div className="font-medium">Involucra personal de otras compañías</div>
-            <div className="mt-2 flex gap-4">
-              {(["Si", "No"] as const).map((v) => (
-                <label key={v} className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="otherCompanies"
-                    checked={otherCompanies === v}
-                    onChange={() => setOtherCompanies(v)}
-                  />
-                  {v}
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* ✅ BLOQUE LECCIÓN APRENDIDA */}
-        {incidentsReference === "Si" && (
-          <div className="border rounded p-3 bg-amber-50 border-amber-200">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="font-semibold">Lección aprendida (obligatoria)</div>
-                <div className="text-xs text-neutral-700 mt-1">
-                  Marcaste <b>Incidentes = Sí</b>. Debes cargar y procesar una lección aprendida antes de generar el ATS.
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={openLessonPicker}
-                  className="bg-black text-white px-4 py-2 rounded"
-                  disabled={lessonUploading}
-                >
-                  {lessonFile ? "Cambiar archivo" : "Seleccionar archivo"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!lessonFile) {
-                      setUiError("Primero selecciona un archivo de lección aprendida.");
-                      return;
-                    }
-                    uploadLessonLearned(lessonFile);
-                  }}
-                  className="px-4 py-2 border rounded disabled:opacity-50"
-                  disabled={lessonUploading || !lessonFile}
-                >
-                  {lessonUploading ? "Procesando..." : "Procesar lección"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={clearLessonLearned}
-                  className="px-4 py-2 border rounded disabled:opacity-50"
-                  disabled={lessonUploading}
-                >
-                  Limpiar
-                </button>
-              </div>
-            </div>
-
-            <input
-              ref={lessonInputRef}
-              type="file"
-              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              hidden
-              onChange={(e) => {
-                const f = Array.from(e.target.files || [])[0] || null;
-                setLessonFile(f);
-                setLessonResult(null);
-                setUiError(null);
-                setUiInfo(f ? `Lección aprendida seleccionada: ${f.name}` : null);
-                e.currentTarget.value = "";
-              }}
-            />
-
-            <div className="mt-2 text-sm">
-              {lessonFile ? (
-                <div>
-                  Archivo: <b>{lessonFile.name}</b>{" "}
-                  <span className="text-neutral-500">({Math.round(lessonFile.size / 1024)} KB)</span>
-                </div>
-              ) : (
-                <div className="text-neutral-700">No has seleccionado archivo.</div>
-              )}
-            </div>
-
-            <div className="mt-1 text-sm">
-              Estado:{" "}
-              {lessonResult?.lesson_learned_brief ? (
-                <span className="text-green-700 font-semibold">✅ Lista</span>
-              ) : lessonUploading ? (
-                <span className="text-neutral-700">Procesando...</span>
-              ) : (
-                <span className="text-red-700 font-semibold">❌ Pendiente</span>
-              )}
-            </div>
-
-            {lessonResult?.lesson?.summary && (
-              <div className="mt-2 text-xs text-neutral-700">
-                <b>Resumen:</b> {String(lessonResult.lesson.summary).slice(0, 220)}
-                {String(lessonResult.lesson.summary).length > 220 ? "..." : ""}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Checklists */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="border rounded p-3">
-            <div className="font-medium">Tipos de peligros</div>
-            <div className="mt-2 space-y-1 text-sm">
-              {PELIGROS_TIPOS.map((p) => (
-                <label key={p} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={dangerTypes.includes(p)}
-                    onChange={() => setDangerTypes((prev) => toggleInArray(prev, p))}
-                  />
-                  {p}
-                </label>
-              ))}
-              {dangerTypes.includes("Otros") && (
-                <input
-                  placeholder="Otros (Tipos de peligros)"
-                  value={dangerTypesOther}
-                  onChange={(e) => setDangerTypesOther(e.target.value)}
-                  className="border p-2 rounded w-full mt-2"
-                />
-              )}
-            </div>
-          </div>
-
-          <div className="border rounded p-3">
-            <div className="font-medium">Peligros del entorno (Periféricos)</div>
-            <div className="mt-2 space-y-1 text-sm">
-              {PELIGROS_ENTORNO.map((p) => (
-                <label key={p} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={environmentDangers.includes(p)}
-                    onChange={() => setEnvironmentDangers((prev) => toggleInArray(prev, p))}
-                  />
-                  {p}
-                </label>
-              ))}
-              {environmentDangers.includes("Otros") && (
-                <input
-                  placeholder="Otros (Entorno)"
-                  value={environmentDangersOther}
-                  onChange={(e) => setEnvironmentDangersOther(e.target.value)}
-                  className="border p-2 rounded w-full mt-2"
-                />
-              )}
-            </div>
-          </div>
-
-          <div className="border rounded p-3">
-            <div className="font-medium">Situaciones de emergencia potenciales</div>
-            <div className="mt-2 space-y-1 text-sm">
-              {EMERGENCIAS.map((p) => (
-                <label key={p} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={emergencies.includes(p)}
-                    onChange={() => setEmergencies((prev) => toggleInArray(prev, p))}
-                  />
-                  {p}
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="border rounded p-3">
-          <div className="font-medium">Equipamiento de seguridad</div>
-          <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
-            {EQUIPO_SEGURIDAD.map((p) => (
-              <label key={p} className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={safetyEquipment.includes(p)}
-                  onChange={() => setSafetyEquipment((prev) => toggleInArray(prev, p))}
-                />
-                {p}
-              </label>
-            ))}
-          </div>
-          {safetyEquipment.includes("Otros") && (
-            <input
-              placeholder="Otros (Equipamiento)"
-              value={safetyEquipmentOther}
-              onChange={(e) => setSafetyEquipmentOther(e.target.value)}
-              className="border p-2 rounded w-full mt-3"
-            />
-          )}
-        </div>
-
-        <div className="border rounded p-3">
-          <div className="font-medium">Marcar Acuerdos de Vida aplicables</div>
-          <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-            {ACUERDOS_DE_VIDA.map((p) => (
-              <label key={p} className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={lifeSavingRules.includes(p)}
-                  onChange={() => setLifeSavingRules((prev) => toggleInArray(prev, p))}
-                />
-                {p}
-              </label>
-            ))}
-          </div>
-          <div className="mt-3 text-xs font-semibold text-red-700">
-            Deténgase y busque ayuda si alguno de los controles/acciones anteriores no se ha implementado
-          </div>
-        </div>
-      </section>
-
-      {/* =========================
-         UI NORMAL (TU FLUJO ORIGINAL)
-      ========================= */}
-      <section className="no-print grid grid-cols-1 md:grid-cols-3 gap-4">
-        <input
-          placeholder="Actividad / Trabajo"
-          value={jobTitle}
-          onChange={(e) => setJobTitle(e.target.value)}
-          className="border p-2 rounded"
-        />
-        <input
-          placeholder="Empresa"
-          value={company}
-          onChange={(e) => setCompany(e.target.value)}
-          className="border p-2 rounded"
-        />
-        <input
-          placeholder="Ubicación"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-          className="border p-2 rounded"
-        />
-        <input
-          type="date"
-          value={dateISO}
-          onChange={(e) => setDateISO(e.target.value)}
-          className="border p-2 rounded"
-        />
-        <input
-          placeholder="Turno / Jornada"
-          value={shift}
-          onChange={(e) => setShift(e.target.value)}
-          className="border p-2 rounded md:col-span-2"
-        />
-      </section>
-
-      <section className="no-print flex flex-wrap gap-6">
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={lifting} onChange={(e) => setLifting(e.target.checked)} /> Izaje
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={hotWork} onChange={(e) => setHotWork(e.target.checked)} /> Trabajo en caliente
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={workAtHeight} onChange={(e) => setWorkAtHeight(e.target.checked)} /> Trabajo
-          en alturas
-        </label>
-      </section>
-
-      {/* ENTORNO */}
-      <section className="no-print border rounded p-4 space-y-3">
-        <h2 className="font-semibold">Condiciones del entorno</h2>
-
-        <select
-          value={environment.timeOfDay ?? ""}
-          onChange={(e) => setEnvironment((v) => ({ ...v, timeOfDay: e.target.value || null }))}
-          className="border p-2 rounded w-full"
-        >
-          <option value="">Hora del día</option>
-          <option value="Día">Día</option>
-          <option value="Noche">Noche</option>
-        </select>
-
-        <select
-          value={environment.weather ?? ""}
-          onChange={(e) => setEnvironment((v) => ({ ...v, weather: e.target.value || null }))}
-          className="border p-2 rounded w-full"
-        >
-          <option value="">Clima</option>
-          <option value="Despejado">Despejado</option>
-          <option value="Lluvia">Lluvia</option>
-          <option value="Tormenta eléctrica">Tormenta eléctrica</option>
-          <option value="Neblina">Neblina</option>
-        </select>
-
-        <select
-          value={environment.wind ?? ""}
-          onChange={(e) => setEnvironment((v) => ({ ...v, wind: e.target.value || null }))}
-          className="border p-2 rounded w-full"
-        >
-          <option value="">Viento</option>
-          <option value="Calmo">Calmo</option>
-          <option value="Moderado">Moderado</option>
-          <option value="Fuerte">Fuerte</option>
-        </select>
-
-        <select
-          value={environment.visibility ?? ""}
-          onChange={(e) => setEnvironment((v) => ({ ...v, visibility: e.target.value || null }))}
-          className="border p-2 rounded w-full"
-        >
-          <option value="">Visibilidad</option>
-          <option value="Alta">Alta</option>
-          <option value="Media">Media</option>
-          <option value="Baja">Baja</option>
-        </select>
-
-        <select
-          value={environment.terrain ?? ""}
-          onChange={(e) => setEnvironment((v) => ({ ...v, terrain: e.target.value || null }))}
-          className="border p-2 rounded w-full"
-        >
-          <option value="">Terreno</option>
-          <option value="Seco">Seco</option>
-          <option value="Húmedo/Resbaloso">Húmedo/Resbaloso</option>
-          <option value="Barro">Barro</option>
-        </select>
-
-        <input
-          type="number"
-          placeholder="Temperatura °C"
-          value={environment.temperatureC ?? ""}
-          onChange={(e) =>
-            setEnvironment((v) => ({
-              ...v,
-              temperatureC: e.target.value === "" ? null : Number(e.target.value),
-            }))
-          }
-          className="border p-2 rounded w-full"
-        />
-
-        <input
-          type="number"
-          placeholder="Humedad %"
-          value={environment.humidityPct ?? ""}
-          onChange={(e) =>
-            setEnvironment((v) => ({
-              ...v,
-              humidityPct: e.target.value === "" ? null : Number(e.target.value),
-            }))
-          }
-          className="border p-2 rounded w-full"
-        />
-      </section>
-
-      {/* PROCEDIMIENTOS */}
-      <section className="no-print border rounded p-4 space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <button onClick={openFilePicker} className="bg-black text-white px-4 py-2 rounded">
-            Seleccionar archivos
-          </button>
-
-          <button
-            onClick={handleUploadProcedures}
-            disabled={uploading || selectedFiles.length === 0}
-            className="px-4 py-2 border rounded disabled:opacity-50"
-          >
-            {uploading ? "Procesando..." : "Procesar procedimientos"}
-          </button>
-
-          <button onClick={clearAllFiles} className="px-4 py-2 border rounded">
-            Limpiar
-          </button>
-        </div>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          hidden
-          onChange={(e) => {
-            const files = Array.from(e.target.files || []);
-            addFiles(files);
-            e.currentTarget.value = "";
-          }}
-        />
-
-        <div className="text-sm">
-          {selectedFiles.length > 0 ? (
-            <div className="text-green-700">✅ {selectedFiles.length} archivo(s) seleccionado(s)</div>
-          ) : (
-            <div className="text-neutral-600">No hay archivos seleccionados.</div>
-          )}
-        </div>
-
-        {selectedFiles.length > 0 && (
-          <ul className="divide-y border rounded">
-            {selectedFiles.map((f, idx) => (
-              <li key={`${f.name}-${f.size}-${idx}`} className="flex items-center justify-between p-2 text-sm">
-                <span>
-                  {f.name} <span className="text-neutral-500">({Math.round(f.size / 1024)} KB)</span>
-                </span>
-                <button className="text-red-700 underline" onClick={() => removeFile(idx)}>
-                  Quitar
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="text-sm">
-          Procedimientos procesados: <b>{procedureRefs.length}</b>
-        </div>
-
-        {procedureResults.length > 0 && (
-          <div className="mt-2">
-            <div className="text-sm font-medium mb-1">Detalle por archivo</div>
-            <ul className="divide-y border rounded">
-              {procedureResults.map((r, i) => (
-                <li key={i} className="p-2 text-sm">
-                  <div>
-                    <b>{r.fileName}</b>{" "}
-                    {r.ok ? (
-                      <span className="text-green-700">✅ OK</span>
-                    ) : (
-                      <span className="text-red-700">❌ Error</span>
-                    )}
-                  </div>
-                  {!r.ok && (
-                    <div className="text-red-800 mt-1">
-                      {r.error || "Error"} {r.details ? `— ${r.details}` : ""}
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </section>
-
-      {/* VALIDACIÓN antes de generar */}
-      {missingReasons.length > 0 && (
-        <section className="no-print border rounded p-4 bg-yellow-50">
-          <div className="font-semibold mb-2">Faltantes antes de generar ATS:</div>
-          <ul className="list-disc pl-5 text-sm">
-            {missingReasons.map((m, idx) => (
-              <li key={idx}>{m}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* GENERAR */}
-      <section className="no-print border rounded p-4 flex items-center gap-3">
-        <button
-          onClick={handleGenerateATS}
-          disabled={!canGenerateATS}
-          className="bg-green-700 text-white px-5 py-2 rounded disabled:opacity-50"
-        >
-          {generatingATS ? "Generando..." : "Generar ATS"}
-        </button>
-        <span className="text-sm text-neutral-600">
-          {canGenerateATS ? "Listo para generar." : "Completa los faltantes."}
-        </span>
-      </section>
-
-      {/* STOP WORK + PROCEDIMIENTOS (pantalla) */}
-      {atsResult?.stop_work && (
-        <section className={`border rounded p-4 space-y-4 ${decisionSectionCls}`}>
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div>
-              <div className="text-sm text-neutral-700">Decisión Stop Work</div>
-              <div className="text-xl font-semibold">{atsResult.stop_work.decision}</div>
-            </div>
-            <span className={`px-3 py-1 rounded-full text-sm font-semibold ${decisionBadge.cls}`}>
-              {decisionBadge.label}
-            </span>
-          </div>
-
-          <div className="text-sm">
-            <div className="font-medium">Razonamiento</div>
-            <div className="mt-1 text-neutral-800">{atsResult.stop_work.rationale || "—"}</div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="border rounded bg-white p-3">
-              <div className="font-medium">Procedimientos aplicados</div>
-              {appliedProcedures.length === 0 ? (
-                <div className="text-sm text-neutral-600 mt-2">No se registraron procedimientos aplicados.</div>
-              ) : (
-                <ul className="mt-2 list-disc pl-5 text-sm">
-                  {appliedProcedures.map((p, i) => (
-                    <li key={i}>{miniLabel(p)}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="border rounded bg-white p-3">
-              <div className="font-medium">Procedimientos no parseables</div>
-              {notParseableProcedures.length === 0 ? (
-                <div className="text-sm text-neutral-600 mt-2">Ninguno.</div>
-              ) : (
-                <>
-                  <div className="text-sm text-neutral-700 mt-2">
-                    Se dejan en constancia para revisión manual. <b>No bloquean</b> la generación del ATS.
-                  </div>
-                  <ul className="mt-2 list-disc pl-5 text-sm">
-                    {notParseableProcedures.map((p, i) => (
-                      <li key={i}>{miniLabel(p)}</li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ✅ NUEVO: NORMAS (pantalla) */}
-      {normativeToShow.length > 0 && (
-        <section className="border rounded p-4 bg-white">
-          <div className="text-sm text-neutral-600">Referencias normativas</div>
-          <div className="font-semibold text-lg">Normas citadas</div>
-          <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-            {normativeToShow.map((n, i) => (
-              <li key={i}>{n}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* ✅ Recomendaciones IA (pantalla) */}
-      {atsResult && <RecommendationsSection ats={atsResult} />}
-
-      {/* ✅ Checklist bonito */}
-      {checklist && <ChecklistSection checklist={checklist} />}
-
-      {/* ✅ RESUMEN ATS + PASOS (pantalla) */}
-      {atsResult && (
-        <section className="border rounded p-4 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-sm text-neutral-600">Resumen ATS</div>
-              <div className="text-lg font-semibold">{atsResult?.meta?.title || "ATS"}</div>
-              <div className="text-sm text-neutral-700">
-                {atsResult?.meta?.company ? `${atsResult.meta.company} — ` : ""}
-                {atsResult?.meta?.location || ""}
-                {atsResult?.meta?.date ? ` — ${atsResult.meta.date}` : ""}
-                {atsResult?.meta?.shift ? ` — ${atsResult.meta.shift}` : ""}
-              </div>
-            </div>
-
-            <div className="text-sm text-neutral-700">
-              <span className="mr-3">
-                Peligros: <b>{hazardsList.length}</b>
-              </span>
-              <span className="mr-3">
-                Controles: <b>{ctrlEng.length + ctrlAdm.length + ctrlPpe.length}</b>
-              </span>
-              <span>
-                Pasos: <b>{stepsList.length}</b>
-              </span>
-            </div>
-          </div>
-
-          <div className="border rounded p-3 bg-white">
-            <div className="font-medium">Peligros identificados</div>
-            {hazardsList.length === 0 ? (
-              <div className="text-sm text-neutral-600 mt-2">—</div>
-            ) : (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {hazardsList.map((h, i) => (
-                  <span key={i} className="text-xs border rounded-full px-3 py-1 bg-gray-50">
-                    {h}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="border rounded p-3 bg-white">
-            <div className="font-medium">Pasos del trabajo</div>
-
-            {stepsList.length === 0 ? (
-              <div className="text-sm text-neutral-600 mt-2">No se generaron pasos.</div>
-            ) : (
-              <ul className="mt-3 space-y-3">
-                {stepsList.map((s, i) => {
-                  const stepTitle = (s?.step || "").trim() || `Paso ${i + 1}`;
-                  const hz = uniqueNonEmpty(s?.hazards);
-                  const ct = uniqueNonEmpty(s?.controls);
-                  const isOpen = !!openSteps[i];
-
-                  return (
-                    <li key={i} className="border rounded">
-                      <button
-                        type="button"
-                        onClick={() => toggleStep(i)}
-                        className="w-full text-left p-3 flex items-start justify-between gap-3"
-                      >
-                        <div>
-                          <div className="font-semibold">{`${i + 1}. ${stepTitle}`}</div>
-                          <div className="text-xs text-neutral-600 mt-1">
-                            Peligros: <b>{hz.length}</b> · Controles: <b>{ct.length}</b>
-                          </div>
-                        </div>
-                        <span className="text-sm text-neutral-700">{isOpen ? "▲" : "▼"}</span>
-                      </button>
-
-                      {isOpen && (
-                        <div className="p-3 pt-0 grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div className="border rounded p-3 bg-gray-50">
-                            <div className="font-medium text-sm">Peligros</div>
-                            {hz.length === 0 ? (
-                              <div className="text-sm text-neutral-600 mt-2">—</div>
-                            ) : (
-                              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                                {hz.map((x, idx) => (
-                                  <li key={idx}>{x}</li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-
-                          <div className="border rounded p-3 bg-gray-50">
-                            <div className="font-medium text-sm">Controles</div>
-                            {ct.length === 0 ? (
-                              <div className="text-sm text-neutral-600 mt-2">—</div>
-                            ) : (
-                              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                                {ct.map((x, idx) => (
-                                  <li key={idx}>{x}</li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </section>
-      )}
-
-      {/* =========================
-          ✅ VISTA IMPRIMIBLE (PDF) — FORMATO ESTRELLA
-         ========================= */}
-      <div ref={printRef} className="hidden print:block space-y-3 text-[12px] leading-4">
-        {/* Header del formato */}
-        <div className="border border-black">
-          <div className="grid grid-cols-3">
-            <div className="p-2 border-r border-black">
-              <div className="font-semibold">Gestión de HSSEQ</div>
-              <div className="text-xs">Título del Sistema</div>
-            </div>
-            <div className="p-2 border-r border-black">
-              <div className="font-semibold">Análisis de Trabajo Seguro</div>
-              <div className="text-xs">Nombre del Formato</div>
-            </div>
-            <div className="p-2">
-              <div className="font-semibold">02-01-102-F001</div>
-              <div className="text-xs">N.º del Formato</div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-4 border-t border-black">
-            <div className="p-2 border-r border-black">
-              <div className="text-xs">Fecha Emisión</div>
-              <div className="font-semibold">04 septiembre 2024</div>
-            </div>
-            <div className="p-2 border-r border-black">
-              <div className="text-xs">N.º de Revisión</div>
-              <div className="font-semibold">07</div>
-            </div>
-            <div className="p-2 border-r border-black">
-              <div className="text-xs">Preparado por</div>
-              <div className="font-semibold">HSSEQ</div>
-            </div>
-            <div className="p-2">
-              <div className="text-xs">Aprobado por</div>
-              <div className="font-semibold">RAS</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Datos generales */}
-        <div className="border border-black p-2">
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <b>N° ATS:</b> {atsNumber || "—"}
-            </div>
-            <div>
-              <b>N° Permiso de trabajo:</b> {permitNumber || "—"}
-            </div>
-            <div>
-              <b>Fecha de elaboración:</b> {elabDatePrint || "—"}
-            </div>
-            <div>
-              <b>Fecha de ejecución:</b> {execDatePrint || "—"}
-            </div>
-            <div>
-              <b>Versión:</b> {formatVersion || "—"}
-            </div>
-            <div>
-              <b>Frente de trabajo:</b> {workFront || "—"}
-            </div>
-            <div className="col-span-2">
-              <b>Trabajo por desarrollar:</b> {jobTitle || atsResult?.meta?.title || "—"}
-            </div>
-            <div className="col-span-2">
-              <b>Código del Procedimiento relacionado:</b> {procedureCodeRelated || "—"}
-            </div>
-          </div>
-
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <div>
-              <b>Incidentes en trabajos similares:</b> {incidentsReference || "—"}
-            </div>
-            <div>
-              <b>Otras compañías:</b> {otherCompanies || "—"}
-            </div>
-          </div>
-
-          {/* ✅ NUEVO: Normas en PDF */}
-          {normativeToShow.length > 0 && (
-            <div className="mt-2">
-              <b>Referencias normativas:</b>
-              <ul className="list-disc pl-5 mt-1">
-                {normativeToShow.map((n, i) => (
-                  <li key={i}>{n}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-
-        {/* Tipos de peligros + entorno + emergencias */}
-        <div className="border border-black p-2 space-y-2">
-          <div>
-            <div className="font-semibold">Tipos de peligros para ejecutar el trabajo</div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-              {PELIGROS_TIPOS.map((p) => (
-                <div key={p}>
-                  [{dangerTypes.includes(p) ? "X" : " "}] {p}
-                </div>
-              ))}
-              {dangerTypes.includes("Otros") && (
-                <div>
-                  <b>Otros:</b> {dangerTypesOther || "—"}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <div className="font-semibold">PELIGROS DEL ENTORNO (Periféricos)</div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-              {PELIGROS_ENTORNO.map((p) => (
-                <div key={p}>
-                  [{environmentDangers.includes(p) ? "X" : " "}] {p}
-                </div>
-              ))}
-              {environmentDangers.includes("Otros") && (
-                <div>
-                  <b>Otros:</b> {environmentDangersOther || "—"}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <div className="font-semibold">SITUACIONES DE EMERGENCIA POTENCIALES</div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-              {EMERGENCIAS.map((p) => (
-                <div key={p}>
-                  [{emergencies.includes(p) ? "X" : " "}] {p}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Peligros / controles del ATS generado (resumen) */}
-        <div className="border border-black p-2">
-          <div className="font-semibold">Resumen generado (ATS Inteligente)</div>
-          <div className="mt-1">
-            <b>Empresa:</b> {company || atsResult?.meta?.company || "—"} · <b>Ubicación:</b>{" "}
-            {location || atsResult?.meta?.location || "—"} · <b>Turno:</b>{" "}
-            {shift || atsResult?.meta?.shift || "—"}
-          </div>
-
-          <div className="mt-2">
-            <b>Peligros identificados:</b>
-            {hazardsList.length ? (
-              <ul className="list-disc pl-5 mt-1">
-                {hazardsList.map((h, i) => (
-                  <li key={i}>{h}</li>
-                ))}
-              </ul>
-            ) : (
-              <div className="mt-1">—</div>
-            )}
-          </div>
-
-          <div className="mt-2">
-            <b>Controles (ingeniería / administrativos / EPP):</b>
-            <div className="grid grid-cols-3 gap-2 mt-1">
-              <div>
-                <div className="font-semibold">Ingeniería</div>
-                {ctrlEng.length ? (
-                  <ul className="list-disc pl-5">{ctrlEng.map((c, i) => <li key={i}>{c}</li>)}</ul>
-                ) : (
-                  <div>—</div>
-                )}
-              </div>
-              <div>
-                <div className="font-semibold">Administrativos</div>
-                {ctrlAdm.length ? (
-                  <ul className="list-disc pl-5">{ctrlAdm.map((c, i) => <li key={i}>{c}</li>)}</ul>
-                ) : (
-                  <div>—</div>
-                )}
-              </div>
-              <div>
-                <div className="font-semibold">EPP</div>
-                {ctrlPpe.length ? (
-                  <ul className="list-disc pl-5">{ctrlPpe.map((c, i) => <li key={i}>{c}</li>)}</ul>
-                ) : (
-                  <div>—</div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* ✅ Recomendaciones IA en PDF (si existen) */}
-        {(() => {
-          const rec = extractRecommendations(atsResult);
-          if (!rec) return null;
-          const { eng, adm, ppe, recommendations, notes } = normalizeRecControls(rec);
-          const has = eng.length || adm.length || ppe.length || recommendations.length || notes.length;
-          if (!has) return null;
-
-          return (
-            <div className="border border-black p-2">
-              <div className="font-semibold">Sugerencias IA (controles y recomendaciones)</div>
-
-              {(eng.length || adm.length || ppe.length) > 0 && (
-                <div className="mt-2">
-                  <b>Controles sugeridos (jerarquía):</b>
-                  <div className="grid grid-cols-3 gap-2 mt-1">
-                    <div>
-                      <div className="font-semibold">Ingeniería</div>
-                      {eng.length ? (
-                        <ul className="list-disc pl-5">{eng.map((c, i) => <li key={i}>{c}</li>)}</ul>
-                      ) : (
-                        <div>—</div>
-                      )}
-                    </div>
-                    <div>
-                      <div className="font-semibold">Administrativos</div>
-                      {adm.length ? (
-                        <ul className="list-disc pl-5">{adm.map((c, i) => <li key={i}>{c}</li>)}</ul>
-                      ) : (
-                        <div>—</div>
-                      )}
-                    </div>
-                    <div>
-                      <div className="font-semibold">EPP</div>
-                      {ppe.length ? (
-                        <ul className="list-disc pl-5">{ppe.map((c, i) => <li key={i}>{c}</li>)}</ul>
-                      ) : (
-                        <div>—</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {recommendations.length > 0 && (
-                <div className="mt-2">
-                  <b>Recomendaciones:</b>
-                  <ul className="list-disc pl-5 mt-1">
-                    {recommendations.map((x, i) => (
-                      <li key={i}>{x}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {notes.length > 0 && (
-                <div className="mt-2">
-                  <b>Notas:</b>
-                  <ul className="list-disc pl-5 mt-1">
-                    {notes.map((x, i) => (
-                      <li key={i}>{x}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          );
-        })()}
-
-        {/* Equipamiento */}
-        <div className="border border-black p-2">
-          <div className="font-semibold">Equipamiento de Seguridad para realizar este trabajo</div>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-            {EQUIPO_SEGURIDAD.map((p) => (
-              <div key={p}>
-                [{safetyEquipment.includes(p) ? "X" : " "}] {p}
-              </div>
-            ))}
-            {safetyEquipment.includes("Otros") && (
-              <div>
-                <b>Otros:</b> {safetyEquipmentOther || "—"}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Acuerdos de vida */}
-        <div className="border border-black p-2">
-          <div className="font-semibold">Marcar Acuerdos de vida aplicables</div>
-          <div className="mt-1 grid grid-cols-2 gap-x-6 gap-y-1">
-            {ACUERDOS_DE_VIDA.map((p) => (
-              <div key={p}>
-                [{lifeSavingRules.includes(p) ? "X" : " "}] {p}
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-2 font-semibold text-red-700">
-            Deténgase y busque ayuda si alguno de los controles/acciones anteriores no se ha implementado
-          </div>
-        </div>
-
-        {/* Autorización ejecutantes */}
-        <div className="border border-black p-2">
-          <div className="font-semibold">AUTORIZACIÓN DE LOS EJECUTANTES PARA EL INICIO DEL TRABAJO</div>
-          <div className="mt-1 text-xs">
-            <b>No comenzaré a trabajar hasta confirmar que…</b>
-          </div>
-
-          <div className="mt-2 border border-black">
-            <div className="grid grid-cols-2">
-              <div className="p-2 border-r border-black font-semibold">Nombre</div>
-              <div className="p-2 font-semibold">Firma</div>
-            </div>
-            {executants.map((ex, idx) => (
-              <div key={idx} className="grid grid-cols-2 border-t border-black">
-                <div className="p-2 border-r border-black">{ex.name || "—"}</div>
-                <div className="p-2">{ex.signature || "—"}</div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-3 font-semibold">Verificador de inicio del trabajo (Supervisor de área)</div>
-
-          <div className="mt-2 border border-black">
-            <div className="grid grid-cols-4">
-              <div className="p-2 border-r border-black font-semibold">Chequeo</div>
-              <div className="p-2 border-r border-black font-semibold text-center">SI</div>
-              <div className="p-2 border-r border-black font-semibold text-center">NO</div>
-              <div className="p-2 font-semibold text-center">N.A.</div>
-            </div>
-
-            {[
-              ["Tengo claridad de todas las etapas del trabajo a ejecutar", checkStagesClarity],
-              ["Se han identificado y controlado todos los peligros y es seguro comenzar", checkHazardsControlled],
-              ["He confirmado el aislamiento de todas las fuentes de energías peligrosas", checkIsolationConfirmed],
-              ["Se han acordado responsabilidades y canales de comunicación del equipo", checkCommsAgreed],
-              ["Cuento con herramientas y equipos necesarios en buenas condiciones", checkToolsOk],
-            ].map(([label, val], i) => (
-              <div key={i} className="grid grid-cols-4 border-t border-black">
-                <div className="p-2 border-r border-black">{label as string}</div>
-                <div className="p-2 border-r border-black text-center">{boxByVal(val as string, "SI")}</div>
-                <div className="p-2 border-r border-black text-center">{boxByVal(val as string, "NO")}</div>
-                <div className="p-2 text-center">{boxByVal(val as string, "N.A.")}</div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-2 grid grid-cols-3 gap-2">
-            <div>
-              <b>Nombre:</b> {supervisorName || "—"}
-            </div>
-            <div>
-              <b>Función:</b> {supervisorRole || "—"}
-            </div>
-            <div>
-              <b>Firma:</b> {supervisorSignature || "—"}
-            </div>
-          </div>
-
-          <div className="mt-3 font-semibold">Persona que aprueba el ATS</div>
-          <div className="mt-1 grid grid-cols-2 gap-2">
-            <div>
-              <b>Nombre:</b> {approverName || "—"}
-            </div>
-            <div>
-              <b>Firma:</b> {approverSignature || "—"}
-            </div>
-          </div>
-
-          {/* ✅ Bloque charla preturno */}
-          <div className="mt-4 border-t border-black pt-3">
-            <div className="font-semibold">Resumen para charla preturno</div>
-
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <div>
-                <b>Trabajo:</b> {jobTitle || atsResult?.meta?.title || "—"}
-              </div>
-              <div>
-                <b>Decisión Stop Work:</b> {atsResult?.stop_work?.decision || "—"}
-              </div>
-              <div className="col-span-2">
-                <b>Mensaje clave:</b> Si alguna condición cambia o un control no está implementado →{" "}
-                <b>DETENER</b> y re-evaluar.
-              </div>
-            </div>
-
-            <div className="mt-2 grid grid-cols-2 gap-3">
-              <div className="border border-black p-2">
-                <div className="font-semibold">Peligros críticos (Top)</div>
-                {topHazards.length ? (
-                  <ul className="list-disc pl-5 mt-1">
-                    {topHazards.map((h, i) => (
-                      <li key={i}>{h}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="mt-1">—</div>
-                )}
-              </div>
-
-              <div className="border border-black p-2">
-                <div className="font-semibold">Controles clave (Top)</div>
-                {topControls.length ? (
-                  <ul className="list-disc pl-5 mt-1">
-                    {topControls.map((c, i) => (
-                      <li key={i}>{c}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="mt-1">—</div>
-                )}
-              </div>
-            </div>
-
-            <div className="mt-3 border border-black p-2">
-              <div className="font-semibold">Pasos críticos (resumen)</div>
-              {topSteps.length ? (
-                <ol className="list-decimal pl-5 mt-1">
-                  {topSteps.map((s, i) => (
-                    <li key={i}>{String(s?.step || "").trim() || `Paso ${i + 1}`}</li>
-                  ))}
-                </ol>
-              ) : (
-                <div className="mt-1">—</div>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-3 border border-black p-2">
-            <div className="font-semibold">Lista de verificación de supervisión (preturno)</div>
-
-            <div className="mt-2 border border-black">
-              <div className="grid grid-cols-4">
-                <div className="p-2 border-r border-black font-semibold">Ítem</div>
-                <div className="p-2 border-r border-black font-semibold text-center">SI</div>
-                <div className="p-2 border-r border-black font-semibold text-center">NO</div>
-                <div className="p-2 font-semibold text-center">N.A.</div>
-              </div>
-
-              {supervisionChecklistRows.map((txt, i) => (
-                <div key={i} className="grid grid-cols-4 border-t border-black">
-                  <div className="p-2 border-r border-black">{txt}</div>
-                  <div className="p-2 border-r border-black text-center">[ ]</div>
-                  <div className="p-2 border-r border-black text-center">[ ]</div>
-                  <div className="p-2 text-center">[ ]</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-2 text-[11px]">
-              <b>Resultado del verificador (supervisor):</b> Claridad etapas = [{box(checkStagesClarity === "SI")}] SI / [
-              {box(checkStagesClarity === "NO")}] NO / [{box(checkStagesClarity === "N.A.")}] N.A. · Peligros controlados
-              = [{box(checkHazardsControlled === "SI")}] SI / [{box(checkHazardsControlled === "NO")}] NO / [
-              {box(checkHazardsControlled === "N.A.")}] N.A. · Aislamiento = [{box(checkIsolationConfirmed === "SI")}] SI / [
-              {box(checkIsolationConfirmed === "NO")}] NO / [{box(checkIsolationConfirmed === "N.A.")}] N.A. · Comunicación
-              = [{box(checkCommsAgreed === "SI")}] SI / [{box(checkCommsAgreed === "NO")}] NO / [
-              {box(checkCommsAgreed === "N.A.")}] N.A. · Herramientas OK = [{box(checkToolsOk === "SI")}] SI / [
-              {box(checkToolsOk === "NO")}] NO / [{box(checkToolsOk === "N.A.")}] N.A.
-            </div>
-          </div>
-        </div>
-
-        {/* Pasos del trabajo (detallado) */}
-        <div className="border border-black p-2">
-          <div className="font-semibold">Etapas del trabajo a ejecutar (generadas)</div>
-          {stepsList.length === 0 ? (
-            <div className="mt-2">—</div>
-          ) : (
-            <div className="mt-2 space-y-2">
-              {stepsList.map((s, i) => (
-                <div key={i} className="border border-black p-2">
-                  <div className="font-semibold">
-                    {i + 1}. {String(s.step || `Paso ${i + 1}`)}
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 mt-1">
-                    <div>
-                      <div className="font-semibold">Riesgos Potenciales</div>
-                      {uniqueNonEmpty(s.hazards).length ? (
-                        <ul className="list-disc pl-5 mt-1">
-                          {uniqueNonEmpty(s.hazards).map((h, idx) => (
-                            <li key={idx}>{h}</li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <div className="mt-1">—</div>
-                      )}
-                    </div>
-                    <div>
-                      <div className="font-semibold">Acciones / Controles</div>
-                      {uniqueNonEmpty(s.controls).length ? (
-                        <ul className="list-disc pl-5 mt-1">
-                          {uniqueNonEmpty(s.controls).map((c, idx) => (
-                            <li key={idx}>{c}</li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <div className="mt-1">—</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="text-[10px] text-neutral-700">
-          “Descargar PDF” abre el diálogo de impresión del navegador: selecciona “Guardar como PDF”.
-        </div>
-      </div>
-
-      {/* =========================
-          AUTORIZACIONES (PANTALLA) — editables
-         ========================= */}
-      <section className="no-print border rounded p-4 space-y-3">
-        <div className="font-semibold">Autorización y verificación (Formato Estrella)</div>
-
-        <div className="border rounded p-3">
-          <div className="font-medium">Ejecutantes</div>
-          <div className="mt-2 space-y-2">
-            {executants.map((ex, idx) => (
-              <div key={idx} className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                <input
-                  placeholder={`Nombre ejecutante ${idx + 1}`}
-                  value={ex.name}
-                  onChange={(e) =>
-                    setExecutants((prev) => {
-                      const next = [...prev];
-                      next[idx] = { ...next[idx], name: e.target.value };
-                      return next;
-                    })
-                  }
-                  className="border p-2 rounded"
-                />
-                <input
-                  placeholder="Firma (texto)"
-                  value={ex.signature}
-                  onChange={(e) =>
-                    setExecutants((prev) => {
-                      const next = [...prev];
-                      next[idx] = { ...next[idx], signature: e.target.value };
-                      return next;
-                    })
-                  }
-                  className="border p-2 rounded"
-                />
-              </div>
-            ))}
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={generateATS}
+              disabled={loading}
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading ? "Generando..." : "Generar ATS"}
+            </button>
 
             <button
-              type="button"
-              className="px-3 py-2 border rounded text-sm"
-              onClick={() => setExecutants((prev) => [...prev, { name: "", signature: "" }])}
+              onClick={resetForm}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
             >
-              + Agregar ejecutante
+              Limpiar
+            </button>
+
+            <button
+              onClick={() => handlePrint?.()}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
+            >
+              Imprimir / PDF
             </button>
           </div>
         </div>
-
-        <div className="border rounded p-3">
-          <div className="font-medium">Supervisor verificador</div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">
-            <input
-              placeholder="Nombre"
-              value={supervisorName}
-              onChange={(e) => setSupervisorName(e.target.value)}
-              className="border p-2 rounded"
-            />
-            <input
-              placeholder="Función"
-              value={supervisorRole}
-              onChange={(e) => setSupervisorRole(e.target.value)}
-              className="border p-2 rounded"
-            />
-            <input
-              placeholder="Firma (texto)"
-              value={supervisorSignature}
-              onChange={(e) => setSupervisorSignature(e.target.value)}
-              className="border p-2 rounded"
-            />
+/*bloque26
+{error ? (
+          <div className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <strong>Error:</strong> {error}
           </div>
+        ) : null}
 
-          <div className="mt-3 grid grid-cols-1 gap-2 text-sm">
-            {[
-              ["Claridad de todas las etapas", checkStagesClarity, setCheckStagesClarity],
-              ["Peligros identificados y controlados", checkHazardsControlled, setCheckHazardsControlled],
-              ["Aislamiento energías peligrosas confirmado", checkIsolationConfirmed, setCheckIsolationConfirmed],
-              ["Responsabilidades y comunicación acordadas", checkCommsAgreed, setCheckCommsAgreed],
-              ["Herramientas/equipos en buenas condiciones", checkToolsOk, setCheckToolsOk],
-            ].map(([label, value, setter], idx) => (
-              <div key={idx} className="border rounded p-2">
-                <div className="font-medium">{label as string}</div>
-                <div className="mt-2 flex flex-wrap gap-4">
-                  {(["SI", "NO", "N.A."] as const).map((v) => (
-                    <label key={v} className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name={`supcheck_${idx}`}
-                        checked={value === v}
-                        onChange={() => (setter as any)(v)}
-                      />
-                      {v}
-                    </label>
-                  ))}
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+          <div className="xl:col-span-2 space-y-6">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-lg font-semibold">1. Datos generales</h2>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Empresa</span>
+                  <input
+                    value={company}
+                    onChange={(e) => setCompany(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Título</span>
+                  <input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Ubicación</span>
+                  <input
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="Campo / locación / área"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Fecha</span>
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Turno</span>
+                  <select
+                    value={shift}
+                    onChange={(e) => setShift(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500"
+                  >
+                    <option value="Día">Día</option>
+                    <option value="Noche">Noche</option>
+                    <option value="Mixto">Mixto</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+/*Bloque27
+<section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-lg font-semibold">2. Condiciones del entorno</h2>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Hora del día</span>
+                  <input
+                    value={timeOfDay}
+                    onChange={(e) => setTimeOfDay(e.target.value)}
+                    placeholder="Mañana / tarde / noche"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Clima</span>
+                  <input
+                    value={weather}
+                    onChange={(e) => setWeather(e.target.value)}
+                    placeholder="Soleado / lluvia / tormenta"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Temperatura °C</span>
+                  <input
+                    value={temperatureC}
+                    onChange={(e) => setTemperatureC(e.target.value)}
+                    type="number"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Humedad %</span>
+                  <input
+                    value={humidityPct}
+                    onChange={(e) => setHumidityPct(e.target.value)}
+                    type="number"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Viento</span>
+                  <input
+                    value={wind}
+                    onChange={(e) => setWind(e.target.value)}
+                    placeholder="Bajo / moderado / fuerte"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Iluminación</span>
+                  <input
+                    value={lighting}
+                    onChange={(e) => setLighting(e.target.value)}
+                    placeholder="Adecuada / deficiente"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Terreno</span>
+                  <input
+                    value={terrain}
+                    onChange={(e) => setTerrain(e.target.value)}
+                    placeholder="Estable / irregular / fangoso"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">Visibilidad</span>
+                  <input
+                    value={visibility}
+                    onChange={(e) => setVisibility(e.target.value)}
+                    placeholder="Buena / limitada"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+              </div>
+            </section>
+/*bloque28
+<section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-lg font-semibold">3. Peligros, controles y pasos</h2>
+
+              <div className="grid grid-cols-1 gap-4">
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">
+                    Peligros identificados
+                  </span>
+                  <textarea
+                    value={hazardsText}
+                    onChange={(e) => setHazardsText(e.target.value)}
+                    rows={5}
+                    placeholder={`Un peligro por línea
+Caída de altura
+Caída de objetos
+Atrapamiento
+Líneas presurizadas`}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                  <label className="block">
+                    <span className="mb-1 block text-sm font-medium">
+                      Controles de ingeniería
+                    </span>
+                    <textarea
+                      value={engineeringControlsText}
+                      onChange={(e) => setEngineeringControlsText(e.target.value)}
+                      rows={6}
+                      placeholder="Un control por línea"
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-sm font-medium">
+                      Controles administrativos
+                    </span>
+                    <textarea
+                      value={administrativeControlsText}
+                      onChange={(e) => setAdministrativeControlsText(e.target.value)}
+                      rows={6}
+                      placeholder="Un control por línea"
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-sm font-medium">
+                      EPP
+                    </span>
+                    <textarea
+                      value={ppeControlsText}
+                      onChange={(e) => setPpeControlsText(e.target.value)}
+                      rows={6}
+                      placeholder="Un EPP por línea"
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">
+                    Pasos de la tarea
+                  </span>
+                  <textarea
+                    value={stepsText}
+                    onChange={(e) => setStepsText(e.target.value)}
+                    rows={5}
+                    placeholder={`Un paso por línea
+Inspección del área
+Aseguramiento del equipo
+Ejecución de la tarea
+Cierre y orden del área`}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium">
+                    Referencias normativas / procedimientos
+                  </span>
+                  <textarea
+                    value={normativeRefsText}
+                    onChange={(e) => setNormativeRefsText(e.target.value)}
+                    rows={4}
+                    placeholder={`Una referencia por línea
+Resolución 4272 de 2021
+ISO 45001
+Procedimiento de trabajo en alturas`}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+              </div>
+            </section>
+/*Bloque29
+<section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-lg font-semibold">4. Checklist crítico</h2>
+
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <div>
+                  <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-600">
+                    Tipo de trabajo
+                  </h3>
+                  <div className="grid grid-cols-1 gap-2">
+                    {[
+                      [workAtHeight, setWorkAtHeight, "Trabajo en alturas"],
+                      [confinedSpace, setConfinedSpace, "Espacio confinado"],
+                      [liftingOps, setLiftingOps, "Izaje de cargas"],
+                      [lineOpening, setLineOpening, "Apertura de líneas"],
+                      [energizedWork, setEnergizedWork, "Trabajo energizado"],
+                      [hotWork, setHotWork, "Trabajo en caliente"],
+                    ].map(([value, setter, label]) => (
+                      <label
+                        key={label as string}
+                        className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={value as boolean}
+                          onChange={(e) =>
+                            (setter as React.Dispatch<React.SetStateAction<boolean>>)(
+                              e.target.checked
+                            )
+                          }
+                          className="h-4 w-4"
+                        />
+                        <span className="text-sm">{label as string}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+/*bloque30
+<div>
+                  <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-600">
+                    Verificaciones previas
+                  </h3>
+                  <div className="grid grid-cols-1 gap-2">
+                    {[
+                      [permitApproved, setPermitApproved, "Permiso aprobado"],
+                      [isolated, setIsolated, "Aislamiento verificado"],
+                      [gasTestOk, setGasTestOk, "Prueba de gases aceptable"],
+                      [rescuePlan, setRescuePlan, "Plan de rescate disponible"],
+                      [certifiedPersonnel, setCertifiedPersonnel, "Personal certificado"],
+                      [ppeVerified, setPpeVerified, "EPP verificado"],
+                      [toolsInspected, setToolsInspected, "Herramientas inspeccionadas"],
+                      [areaDelimited, setAreaDelimited, "Área delimitada"],
+                      [weatherOk, setWeatherOk, "Condiciones climáticas aceptables"],
+                    ].map(([value, setter, label]) => (
+                      <label
+                        key={label as string}
+                        className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={value as boolean}
+                          onChange={(e) =>
+                            (setter as React.Dispatch<React.SetStateAction<boolean>>)(
+                              e.target.checked
+                            )
+                          }
+                          className="h-4 w-4"
+                        />
+                        <span className="text-sm">{label as string}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
-            ))}
+            </section>
+/*Bloque31
+<section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-lg font-semibold">5. Carga de procedimientos</h2>
+
+              <div className="space-y-4">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium">
+                    Adjuntar procedimientos / instructivos / JSON / TXT
+                  </span>
+                  <input
+                    type="file"
+                    multiple
+                    onChange={handleProcedureUpload}
+                    className="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+
+                {procedureFiles.length ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="mb-2 text-sm font-medium text-slate-700">
+                      Archivos cargados:
+                    </p>
+                    <ul className="list-disc space-y-1 pl-5 text-sm text-slate-600">
+                      {procedureFiles.map((file) => (
+                        <li key={file.name}>{file.name}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {procedureResults.length ? (
+                  <div className="overflow-hidden rounded-xl border border-slate-200">
+                    <table className="min-w-full border-collapse text-sm">
+                      <thead className="bg-slate-100 text-left text-slate-700">
+                        <tr>
+                          <th className="px-3 py-2">Archivo</th>
+                          <th className="px-3 py-2">Estado</th>
+                          <th className="px-3 py-2">Título</th>
+                          <th className="px-3 py-2">Código</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {procedureResults.map((r, idx) => (
+                          <tr key={`${r.fileName}-${idx}`} className="border-t border-slate-200">
+                            <td className="px-3 py-2">{r.fileName}</td>
+                            <td className="px-3 py-2">
+                              {r.ok ? (
+                                <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">
+                                  OK
+                                </span>
+                              ) : (
+                                <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800">
+                                  Error
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">{r.procedure?.title || "-"}</td>
+                            <td className="px-3 py-2">{r.procedure?.code || "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          </div>
+/*Bloque32
+<div className="space-y-6">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-lg font-semibold">Vista previa del checklist</h2>
+
+              <div className="mb-4">
+                <span
+                  className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${
+                    checklistPreview.decision_hint === "STOP"
+                      ? "border-red-300 bg-red-100 text-red-800"
+                      : checklistPreview.decision_hint === "REVIEW_REQUIRED"
+                      ? "border-yellow-300 bg-yellow-100 text-yellow-800"
+                      : "border-green-300 bg-green-100 text-green-800"
+                  }`}
+                >
+                  {checklistPreview.decision_hint}
+                </span>
+              </div>
+
+              {checklistPreview.critical_fails.length ? (
+                <div className="mb-4">
+                  <h3 className="mb-2 text-sm font-semibold text-red-700">
+                    Fallas críticas
+                  </h3>
+                  <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                    {checklistPreview.critical_fails.map((item, idx) => (
+                      <li key={`${item}-${idx}`}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {checklistPreview.missing.length ? (
+                <div className="mb-4">
+                  <h3 className="mb-2 text-sm font-semibold text-yellow-700">
+                    Pendientes
+                  </h3>
+                  <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                    {checklistPreview.missing.map((item, idx) => (
+                      <li key={`${item}-${idx}`}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+/*Bloque33
+<div>
+                <h3 className="mb-2 text-sm font-semibold text-slate-700">
+                  Acciones sugeridas
+                </h3>
+                {checklistPreview.actions.length ? (
+                  <ul className="space-y-2">
+                    {checklistPreview.actions.map((a, idx) => (
+                      <li
+                        key={`${a.action}-${idx}`}
+                        className="rounded-xl border border-slate-200 p-3"
+                      >
+                        <div className="mb-1 flex items-center justify-between gap-3">
+                          <span className="text-sm font-medium">{a.action}</span>
+                          <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold uppercase text-slate-700">
+                            {a.priority}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          Categoría: {a.category}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    No hay acciones pendientes con la información actual.
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-lg font-semibold">Resumen rápido</h2>
+
+              <div className="space-y-3 text-sm text-slate-700">
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <strong>Peligros:</strong> {parsedHazards.length}
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <strong>Controles de ingeniería:</strong> {parsedBaseControls.engineering.length}
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <strong>Controles administrativos:</strong> {parsedBaseControls.administrative.length}
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <strong>EPP:</strong> {parsedBaseControls.ppe.length}
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <strong>Pasos:</strong> {parsedSteps.length}
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <strong>Procedimientos cargados:</strong> {procedureResults.length}
+                </div>
+              </div>
+            </section>
           </div>
         </div>
+/*Bloque34
+<div>
+                <h3 className="mb-2 text-sm font-semibold text-slate-700">
+                  Acciones sugeridas
+                </h3>
+                {checklistPreview.actions.length ? (
+                  <ul className="space-y-2">
+                    {checklistPreview.actions.map((a, idx) => (
+                      <li
+                        key={`${a.action}-${idx}`}
+                        className="rounded-xl border border-slate-200 p-3"
+                      >
+                        <div className="mb-1 flex items-center justify-between gap-3">
+                          <span className="text-sm font-medium">{a.action}</span>
+                          <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold uppercase text-slate-700">
+                            {a.priority}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          Categoría: {a.category}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    No hay acciones pendientes con la información actual.
+                  </p>
+                )}
+              </div>
+            </section>
 
-        <div className="border rounded p-3">
-          <div className="font-medium">Aprobador del ATS</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
-            <input
-              placeholder="Nombre"
-              value={approverName}
-              onChange={(e) => setApproverName(e.target.value)}
-              className="border p-2 rounded"
-            />
-            <input
-              placeholder="Firma (texto)"
-              value={approverSignature}
-              onChange={(e) => setApproverSignature(e.target.value)}
-              className="border p-2 rounded"
-            />
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-lg font-semibold">Resumen rápido</h2>
+
+              <div className="space-y-3 text-sm text-slate-700">
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <strong>Peligros:</strong> {parsedHazards.length}
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <strong>Controles de ingeniería:</strong> {parsedBaseControls.engineering.length}
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <strong>Controles administrativos:</strong> {parsedBaseControls.administrative.length}
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <strong>EPP:</strong> {parsedBaseControls.ppe.length}
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <strong>Pasos:</strong> {parsedSteps.length}
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <strong>Procedimientos cargados:</strong> {procedureResults.length}
+                </div>
+              </div>
+            </section>
           </div>
         </div>
-      </section>
+/*Bloque35
+<div className="mb-6">
+                <h3 className="mb-2 text-lg font-semibold">Decisión Stop Work</h3>
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <p className="mb-3 text-sm text-slate-700">
+                    <strong>Razonamiento:</strong> {atsResult.stop_work.rationale}
+                  </p>
 
-      {/* ✅ BOTÓN FINAL (PDF) */}
-      {atsResult && (
-        <div className="no-print border-t pt-6 flex justify-end">
-          <button onClick={() => handlePrintToPdf()} className="px-6 py-2 bg-black text-white rounded">
-            Descargar PDF
-          </button>
-        </div>
-      )}
+                  {atsResult.stop_work.auto_triggers?.length ? (
+                    <div className="mb-3">
+                      <h4 className="mb-1 text-sm font-semibold text-red-700">
+                        Disparadores automáticos
+                      </h4>
+                      <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                        {atsResult.stop_work.auto_triggers.map((item, idx) => (
+                          <li key={`${item}-${idx}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {atsResult.stop_work.criteria?.length ? (
+                    <div>
+                      <h4 className="mb-1 text-sm font-semibold text-slate-700">
+                        Criterios considerados
+                      </h4>
+                      <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                        {atsResult.stop_work.criteria.map((item, idx) => (
+                          <li key={`${item}-${idx}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+/*Bloque36
+<div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <div>
+                  <h3 className="mb-2 text-lg font-semibold">Peligros identificados</h3>
+                  <div className="rounded-xl border border-slate-200 p-4">
+                    {atsResult.hazards?.length ? (
+                      <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                        {atsResult.hazards.map((hazard, idx) => (
+                          <li key={`${hazard}-${idx}`}>{hazard}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-slate-500">
+                        No se registraron peligros.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="mb-2 text-lg font-semibold">Condiciones del entorno</h3>
+                  <div className="rounded-xl border border-slate-200 p-4">
+                    <div className="grid grid-cols-1 gap-2 text-sm text-slate-700 md:grid-cols-2">
+                      <div><strong>Clima:</strong> {atsResult.environment?.weather || "-"}</div>
+                      <div><strong>Temperatura:</strong> {atsResult.environment?.temperatureC ?? "-"}</div>
+                      <div><strong>Humedad:</strong> {atsResult.environment?.humidityPct ?? "-"}</div>
+                      <div><strong>Viento:</strong> {atsResult.environment?.wind || "-"}</div>
+                      <div><strong>Iluminación:</strong> {atsResult.environment?.lighting || "-"}</div>
+                      <div><strong>Terreno:</strong> {atsResult.environment?.terrain || "-"}</div>
+                      <div><strong>Visibilidad:</strong> {atsResult.environment?.visibility || "-"}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+/*bloque 37
+<div className="mb-6">
+                <h3 className="mb-2 text-lg font-semibold">Controles consolidados</h3>
+
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                  <div className="rounded-xl border border-slate-200 p-4">
+                    <h4 className="mb-2 font-semibold text-slate-800">
+                      Ingeniería
+                    </h4>
+                    {atsResult.controls.engineering?.length ? (
+                      <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                        {atsResult.controls.engineering.map((item, idx) => (
+                          <li key={`${item}-${idx}`}>{item}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-slate-500">Sin registros.</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 p-4">
+                    <h4 className="mb-2 font-semibold text-slate-800">
+                      Administrativos
+                    </h4>
+                    {atsResult.controls.administrative?.length ? (
+                      <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                        {atsResult.controls.administrative.map((item, idx) => (
+                          <li key={`${item}-${idx}`}>{item}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-slate-500">Sin registros.</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 p-4">
+                    <h4 className="mb-2 font-semibold text-slate-800">EPP</h4>
+                    {atsResult.controls.ppe?.length ? (
+                      <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                        {atsResult.controls.ppe.map((item, idx) => (
+                          <li key={`${item}-${idx}`}>{item}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-slate-500">Sin registros.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+/*Bloque38
+<div className="mb-6">
+                <h3 className="mb-2 text-lg font-semibold">Pasos de la tarea</h3>
+                <div className="overflow-hidden rounded-xl border border-slate-200">
+                  <table className="min-w-full border-collapse text-sm">
+                    <thead className="bg-slate-100 text-left text-slate-700">
+                      <tr>
+                        <th className="px-3 py-2">#</th>
+                        <th className="px-3 py-2">Paso</th>
+                        <th className="px-3 py-2">Peligros</th>
+                        <th className="px-3 py-2">Controles</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {atsResult.steps?.length ? (
+                        atsResult.steps.map((step, idx) => (
+                          <tr key={`${step.step}-${idx}`} className="border-t border-slate-200 align-top">
+                            <td className="px-3 py-2">{idx + 1}</td>
+                            <td className="px-3 py-2">{step.step}</td>
+                            <td className="px-3 py-2">
+                              {step.hazards?.length ? step.hazards.join(", ") : "-"}
+                            </td>
+                            <td className="px-3 py-2">
+                              {step.controls?.length ? step.controls.join(", ") : "-"}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={4} className="px-3 py-4 text-center text-slate-500">
+                            No se registraron pasos.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+/*bloque39
+<div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <div>
+                  <h3 className="mb-2 text-lg font-semibold">
+                    Procedimientos aplicados
+                  </h3>
+                  <div className="rounded-xl border border-slate-200 p-4">
+                    {atsResult.procedure_influence?.applied?.length ? (
+                      <ul className="space-y-2 text-sm text-slate-700">
+                        {atsResult.procedure_influence.applied.map((p, idx) => (
+                          <li
+                            key={`${p.code}-${idx}`}
+                            className="rounded-lg bg-slate-50 px-3 py-2"
+                          >
+                            <div className="font-medium">{p.title}</div>
+                            <div className="text-xs text-slate-500">
+                              Código: {p.code} · Origen: {p.origin}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-slate-500">
+                        No hay procedimientos aplicados.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="mb-2 text-lg font-semibold">
+                    Procedimientos no interpretables
+                  </h3>
+                  <div className="rounded-xl border border-slate-200 p-4">
+                    {atsResult.procedure_influence?.not_parseable?.length ? (
+                      <ul className="space-y-2 text-sm text-slate-700">
+                        {atsResult.procedure_influence.not_parseable.map((p, idx) => (
+                          <li
+                            key={`${p.code}-${idx}`}
+                            className="rounded-lg bg-slate-50 px-3 py-2"
+                          >
+                            <div className="font-medium">{p.title}</div>
+                            <div className="text-xs text-slate-500">
+                              Código: {p.code} · Origen: {p.origin}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-slate-500">
+                        Todos los procedimientos cargados fueron procesados.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+/*Bloque40
+<div className="mb-6">
+                <h3 className="mb-2 text-lg font-semibold">
+                  Controles derivados de procedimientos
+                </h3>
+                <div className="rounded-xl border border-slate-200 p-4">
+                  {atsResult.procedure_influence?.derived_controls?.length ? (
+                    <div className="overflow-hidden rounded-xl border border-slate-200">
+                      <table className="min-w-full border-collapse text-sm">
+                        <thead className="bg-slate-100 text-left text-slate-700">
+                          <tr>
+                            <th className="px-3 py-2">Nivel</th>
+                            <th className="px-3 py-2">Control</th>
+                            <th className="px-3 py-2">Fuente</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {atsResult.procedure_influence.derived_controls.map((item, idx) => (
+                            <tr
+                              key={`${item.control}-${idx}`}
+                              className="border-t border-slate-200 align-top"
+                            >
+                              <td className="px-3 py-2 uppercase">{item.level}</td>
+                              <td className="px-3 py-2">{item.control}</td>
+                              <td className="px-3 py-2">
+                                {item.source.title} ({item.source.code})
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">
+                      No se derivaron controles adicionales desde los procedimientos.
+                    </p>
+                  )}
+                </div>
+              </div>
+/*bloque41
+<div className="mb-6">
+                <h3 className="mb-2 text-lg font-semibold">
+                  Resultado del checklist
+                </h3>
+
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <div className="mb-4">
+                    <span
+                      className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${
+                        atsResult.checklist_actions?.decision_hint === "STOP"
+                          ? "border-red-300 bg-red-100 text-red-800"
+                          : atsResult.checklist_actions?.decision_hint === "REVIEW_REQUIRED"
+                          ? "border-yellow-300 bg-yellow-100 text-yellow-800"
+                          : "border-green-300 bg-green-100 text-green-800"
+                      }`}
+                    >
+                      {atsResult.checklist_actions?.decision_hint || "N/A"}
+                    </span>
+                  </div>
+
+                  {atsResult.checklist_actions?.critical_fails?.length ? (
+                    <div className="mb-4">
+                      <h4 className="mb-1 text-sm font-semibold text-red-700">
+                        Fallas críticas
+                      </h4>
+                      <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                        {atsResult.checklist_actions.critical_fails.map((item, idx) => (
+                          <li key={`${item}-${idx}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {atsResult.checklist_actions?.missing?.length ? (
+                    <div className="mb-4">
+                      <h4 className="mb-1 text-sm font-semibold text-yellow-700">
+                        Elementos pendientes
+                      </h4>
+                      <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                        {atsResult.checklist_actions.missing.map((item, idx) => (
+                          <li key={`${item}-${idx}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+/*bloque42
+{atsResult.checklist_actions?.actions?.length ? (
+                    <div>
+                      <h4 className="mb-2 text-sm font-semibold text-slate-700">
+                        Acciones requeridas
+                      </h4>
+                      <ul className="space-y-2">
+                        {atsResult.checklist_actions.actions.map((a, idx) => (
+                          <li
+                            key={`${a.action}-${idx}`}
+                            className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-700"
+                          >
+                            <div className="mb-1 flex items-center justify-between gap-3">
+                              <span className="font-medium">{a.action}</span>
+                              <span className="rounded-full bg-white px-2 py-1 text-[11px] font-semibold uppercase text-slate-600 border border-slate-200">
+                                {a.priority}
+                              </span>
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              Categoría: {a.category}
+                            </div>
+                            {a.evidence?.length ? (
+                              <div className="mt-2 text-xs text-slate-500">
+                                Evidencia: {a.evidence.join(" · ")}
+                              </div>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+/*bloque43
+<div className="mb-6">
+                <h3 className="mb-2 text-lg font-semibold">
+                  Recomendaciones IA
+                </h3>
+
+                <div className="rounded-xl border border-slate-200 p-4">
+                  {(atsResult.recommendations?.recommendations?.length ||
+                    atsResult.recommendations?.notes?.length ||
+                    atsResult.recommendations?.controls?.engineering?.length ||
+                    atsResult.recommendations?.controls?.administrative?.length ||
+                    atsResult.recommendations?.controls?.ppe?.length) ? (
+                    <div className="space-y-4">
+                      {atsResult.recommendations?.recommendations?.length ? (
+                        <div>
+                          <h4 className="mb-1 text-sm font-semibold text-slate-700">
+                            Recomendaciones
+                          </h4>
+                          <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                            {atsResult.recommendations.recommendations.map((item, idx) => (
+                              <li key={`${item}-${idx}`}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      {atsResult.recommendations?.notes?.length ? (
+                        <div>
+                          <h4 className="mb-1 text-sm font-semibold text-slate-700">
+                            Notas
+                          </h4>
+                          <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                            {atsResult.recommendations.notes.map((item, idx) => (
+                              <li key={`${item}-${idx}`}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+/*Bloque44
+<div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                        <div className="rounded-xl bg-slate-50 p-3">
+                          <h4 className="mb-2 text-sm font-semibold text-slate-700">
+                            Ingeniería
+                          </h4>
+                          {atsResult.recommendations?.controls?.engineering?.length ? (
+                            <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                              {atsResult.recommendations.controls.engineering.map((item, idx) => (
+                                <li key={`${item}-${idx}`}>{item}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-slate-500">Sin recomendaciones.</p>
+                          )}
+                        </div>
+
+                        <div className="rounded-xl bg-slate-50 p-3">
+                          <h4 className="mb-2 text-sm font-semibold text-slate-700">
+                            Administrativos
+                          </h4>
+                          {atsResult.recommendations?.controls?.administrative?.length ? (
+                            <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                              {atsResult.recommendations.controls.administrative.map((item, idx) => (
+                                <li key={`${item}-${idx}`}>{item}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-slate-500">Sin recomendaciones.</p>
+                          )}
+                        </div>
+
+                        <div className="rounded-xl bg-slate-50 p-3">
+                          <h4 className="mb-2 text-sm font-semibold text-slate-700">EPP</h4>
+                          {atsResult.recommendations?.controls?.ppe?.length ? (
+                            <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                              {atsResult.recommendations.controls.ppe.map((item, idx) => (
+                                <li key={`${item}-${idx}`}>{item}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-slate-500">Sin recomendaciones.</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">
+                      No se recibieron recomendaciones adicionales de la IA.
+                    </p>
+                  )}
+                </div>
+              </div>
+/*bloque45
+<div className="mb-6">
+                <h3 className="mb-2 text-lg font-semibold">
+                  Referencias normativas usadas
+                </h3>
+                <div className="rounded-xl border border-slate-200 p-4">
+                  {atsResult.normative_refs_used?.length ? (
+                    <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                      {atsResult.normative_refs_used.map((item, idx) => (
+                        <li key={`${item}-${idx}`}>{item}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-slate-500">
+                      No se registraron referencias normativas.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {rawAiResponse ? (
+                <div>
+                  <h3 className="mb-2 text-lg font-semibold">Respuesta cruda de IA</h3>
+                  <div className="overflow-auto rounded-xl border border-slate-200 bg-slate-950 p-4">
+                    <pre className="whitespace-pre-wrap break-words text-xs text-slate-100">
+{rawAiResponse}
+                    </pre>
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
+

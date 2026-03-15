@@ -84,14 +84,27 @@ function normalizeNormRefs(v: any): NormRef[] {
 }
 
 /* =========================
+   Tipos auxiliares
+========================= */
+type CriticalTasks = {
+  lifting: boolean;
+  hotWork: boolean;
+  workAtHeight: boolean;
+  confinedSpace: boolean;
+  highPressure: boolean;
+};
+
+/* =========================
    Stop Work determinístico (ENTORNO/TAREA)
 ========================= */
 function computeStopWorkTriggers(payload: any) {
   const env = payload?.environment || {};
-  const tasks = {
+  const tasks: CriticalTasks = {
     lifting: !!payload?.lifting,
     hotWork: !!payload?.hotWork,
     workAtHeight: !!payload?.workAtHeight,
+    confinedSpace: !!payload?.confinedSpace,
+    highPressure: !!payload?.highPressure,
   };
 
   const weather = (env.weather || "").toString();
@@ -173,6 +186,20 @@ function computeStopWorkTriggers(payload: any) {
     if (tasks.lifting) {
       triggers.push("Neblina: STOP WORK para izaje si la visibilidad compromete señalización, señalero y control de área.");
     }
+  }
+
+  // ✅ Espacios confinados
+  if (tasks.confinedSpace) {
+    triggers.push(
+      "Espacio confinado: detener el trabajo si no se cuenta con monitoreo de gases, ventilación adecuada, permiso vigente o vigía designado."
+    );
+  }
+
+  // ✅ Altas presiones
+  if (tasks.highPressure) {
+    triggers.push(
+      "Altas presiones: detener el trabajo si no se ha confirmado aislamiento, despresurización, integridad de conexiones y control de energía."
+    );
   }
 
   return triggers;
@@ -582,6 +609,8 @@ Notas:
         lifting: !!body?.lifting,
         hotWork: !!body?.hotWork,
         workAtHeight: !!body?.workAtHeight,
+        confinedSpace: !!body?.confinedSpace,
+        highPressure: !!body?.highPressure,
       },
       meta: {
         jobTitle: pickString(body?.jobTitle, ""),
@@ -624,19 +653,17 @@ Notas:
 ========================= */
 function buildFallbackHazards(params: {
   checklist: ChecklistActionsPayload;
-  tasks: { lifting: boolean; hotWork: boolean; workAtHeight: boolean };
+  tasks: CriticalTasks;
   environment: ReturnType<typeof normalizeEnvironment>;
   autoTriggers: string[];
 }) {
   const { checklist, tasks, environment, autoTriggers } = params;
 
-  // 1) Base: lo que venga del checklist (Formato Estrella)
   let hazards = mergeUnique(
     safeArrayStrings(checklist?.snapshot?.dangerTypes),
     safeArrayStrings(checklist?.snapshot?.environmentDangers)
   );
 
-  // 2) Derivar por tareas (mínimo útil, sin inventar detalles del proceso)
   if (tasks.lifting) {
     hazards = mergeUnique(hazards, [
       "Izaje / manejo de cargas: golpeado por carga, atrapamiento, caída de carga, zona de exclusión deficiente.",
@@ -652,21 +679,49 @@ function buildFallbackHazards(params: {
       "Trabajo en alturas: caída a distinto nivel, caída de objetos, anclajes/linea de vida inadecuados.",
     ]);
   }
-
-  // 3) Condiciones del entorno (si vienen)
-  if (environment?.visibility === "Baja") hazards = mergeUnique(hazards, ["Visibilidad baja: riesgo de atropellamiento/colisión y pérdida de control del área."]);
-  if (environment?.lighting === "Deficiente") hazards = mergeUnique(hazards, ["Iluminación deficiente: errores operacionales, tropiezos/caídas, colisiones."]);
-  if (environment?.terrain === "Húmedo/Resbaloso" || environment?.terrain === "Barro")
-    hazards = mergeUnique(hazards, ["Superficie resbalosa/inestable: caídas al mismo nivel, pérdida de estabilidad de equipos."]);
-  if (environment?.weather === "Tormenta eléctrica") hazards = mergeUnique(hazards, ["Tormenta eléctrica: exposición a descarga, pérdida de control de tareas expuestas."]);
-  if (environment?.wind === "Fuerte" || environment?.weather === "Viento fuerte") hazards = mergeUnique(hazards, ["Viento fuerte: oscilación de cargas y pérdida de estabilidad/ control."]);
-
-  // 4) Si hay autoTriggers, aseguro que quede al menos un “peligro” contextual asociado
-  if ((autoTriggers?.length || 0) > 0) {
-    hazards = mergeUnique(hazards, ["Condiciones críticas detectadas (STOP/REVIEW): ver auto_triggers y criterios de Stop Work."]);
+  if (tasks.confinedSpace) {
+    hazards = mergeUnique(hazards, [
+      "Espacio confinado: atmósfera peligrosa, deficiencia de oxígeno, intoxicación por gases o rescate complejo.",
+    ]);
+  }
+  if (tasks.highPressure) {
+    hazards = mergeUnique(hazards, [
+      "Líneas o equipos de alta presión: liberación de energía, latigazo de mangueras, proyección de fluidos.",
+    ]);
   }
 
-  // 5) Último recurso: nunca devolver vacío
+  if (environment?.visibility === "Baja") {
+    hazards = mergeUnique(hazards, [
+      "Visibilidad baja: riesgo de atropellamiento/colisión y pérdida de control del área.",
+    ]);
+  }
+  if (environment?.lighting === "Deficiente") {
+    hazards = mergeUnique(hazards, [
+      "Iluminación deficiente: errores operacionales, tropiezos/caídas, colisiones.",
+    ]);
+  }
+  if (environment?.terrain === "Húmedo/Resbaloso" || environment?.terrain === "Barro") {
+    hazards = mergeUnique(hazards, [
+      "Superficie resbalosa/inestable: caídas al mismo nivel, pérdida de estabilidad de equipos.",
+    ]);
+  }
+  if (environment?.weather === "Tormenta eléctrica") {
+    hazards = mergeUnique(hazards, [
+      "Tormenta eléctrica: exposición a descarga, pérdida de control de tareas expuestas.",
+    ]);
+  }
+  if (environment?.wind === "Fuerte" || environment?.weather === "Viento fuerte") {
+    hazards = mergeUnique(hazards, [
+      "Viento fuerte: oscilación de cargas y pérdida de estabilidad/control.",
+    ]);
+  }
+
+  if ((autoTriggers?.length || 0) > 0) {
+    hazards = mergeUnique(hazards, [
+      "Condiciones críticas detectadas (STOP/REVIEW): ver auto_triggers y criterios de Stop Work.",
+    ]);
+  }
+
   if (hazards.length === 0) {
     hazards = [
       "Riesgos generales de operación: interacción hombre-máquina, energías peligrosas, orden y aseo, y condiciones del entorno.",
@@ -680,7 +735,7 @@ function buildFallbackSteps(params: {
   meta: { title: string; company: string; location: string; date: string; shift: string };
   hazards: string[];
   controls: { engineering: string[]; administrative: string[]; ppe: string[] };
-  tasks: { lifting: boolean; hotWork: boolean; workAtHeight: boolean };
+  tasks: CriticalTasks;
   checklist: ChecklistActionsPayload;
 }) {
   const { meta, hazards, controls, tasks, checklist } = params;
@@ -723,7 +778,6 @@ function buildFallbackSteps(params: {
     ),
   });
 
-  // Paso específico por tarea (sin inventar detalles de proceso)
   if (tasks.lifting) {
     steps.push({
       step: "4) Ejecución de izaje/manejo de carga con control de zona de exclusión y comunicación señalero-operador.",
@@ -757,8 +811,44 @@ function buildFallbackSteps(params: {
     });
   }
 
-  // Si no hay tareas específicas activas, poner un paso genérico de ejecución
-  if (!tasks.lifting && !tasks.hotWork && !tasks.workAtHeight) {
+  if (tasks.confinedSpace) {
+    steps.push({
+      step: "4) Ingreso a espacio confinado con monitoreo atmosférico continuo y vigía designado.",
+      hazards: mergeUnique(topHazards, [
+        "Atmósfera peligrosa, intoxicación por gases, rescate complejo.",
+      ]),
+      controls: mergeUnique(
+        [
+          "Permiso de trabajo para espacio confinado.",
+          "Monitoreo continuo de gases.",
+          "Ventilación forzada si aplica.",
+          "Vigía externo permanente.",
+          "Plan de rescate disponible.",
+        ],
+        topControls
+      ),
+    });
+  }
+
+  if (tasks.highPressure) {
+    steps.push({
+      step: "4) Intervención en sistema de alta presión verificando aislamiento y energía cero.",
+      hazards: mergeUnique(topHazards, [
+        "Liberación de energía, latigazo de mangueras, proyección de fluidos.",
+      ]),
+      controls: mergeUnique(
+        [
+          "Verificar aislamiento y energía cero.",
+          "Instalar barreras o zonas de exclusión.",
+          "Inspección de conexiones y mangueras.",
+          "Uso de EPP especializado.",
+        ],
+        topControls
+      ),
+    });
+  }
+
+  if (!tasks.lifting && !tasks.hotWork && !tasks.workAtHeight && !tasks.confinedSpace && !tasks.highPressure) {
     steps.push({
       step: "4) Ejecución del trabajo según plan y controles definidos.",
       hazards: topHazards,
@@ -781,10 +871,6 @@ function buildFallbackSteps(params: {
 
 /* =========================
    JSON Schema ATS
-   🔧 FIX: OpenAI requiere:
-   - required en root incluya TODAS las keys de properties
-   - en arrays de objetos, required incluya TODAS las keys de properties
-   Campos "opcionales" => existen pero permiten null/[].
 ========================= */
 const ATS_SCHEMA = {
   type: "object",
@@ -1016,7 +1102,6 @@ const ATS_SCHEMA = {
       required: ["decision_hint", "missing", "critical_fails", "derived_controls", "actions", "snapshot"],
     },
 
-    // ✅ Referencias normativas (opcionales pero PRESENTES)
     normative_refs: {
       type: "array",
       items: {
@@ -1032,7 +1117,6 @@ const ATS_SCHEMA = {
       },
     },
 
-    // ✅ Recomendaciones sugeridas (opcionales pero PRESENTES)
     recommendations: {
       type: "array",
       items: {
@@ -1060,7 +1144,6 @@ const ATS_SCHEMA = {
     },
   },
 
-  // ✅🔧 FIX CLAVE: OpenAI exige que required incluya TODAS las keys del root properties.
   required: [
     "meta",
     "environment",
@@ -1084,6 +1167,14 @@ export async function POST(req: Request) {
     const body = await req.json();
     const environment = normalizeEnvironment(body?.environment);
 
+    const tasks: CriticalTasks = {
+      lifting: !!body.lifting,
+      hotWork: !!body.hotWork,
+      workAtHeight: !!body.workAtHeight,
+      confinedSpace: !!body.confinedSpace,
+      highPressure: !!body.highPressure,
+    };
+
     // ✅ Normativa opcional
     const normativeRefs = normalizeNormRefs(body?.normative_refs);
 
@@ -1106,7 +1197,6 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       } else {
-        // ✅ Modo flexible: NO bloquea, pero fuerza revisión y añade acción/missing
         checklistBase.missing = mergeUnique(checklistBase.missing, [
           "Incidentes en trabajos similares = Sí, pero no se adjuntó lección aprendida (lesson_learned_brief).",
         ]);
@@ -1193,6 +1283,13 @@ REQUISITOS CRÍTICOS:
 - El ATS NO puede quedar con hazards vacío ni con steps vacío.
 - Debe incluir al menos 3 hazards y al menos 4 steps.
 
+6) TAREAS CRÍTICAS POSIBLES:
+- Izaje
+- Trabajo en caliente
+- Trabajo en alturas
+- Espacios confinados
+- Sistemas de alta presión
+
 Devuelve SOLO JSON que cumpla el schema (sin markdown).
 `.trim();
 
@@ -1200,9 +1297,11 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
       meta,
       environment,
       tasks: {
-        lifting: !!body.lifting,
-        hotWork: !!body.hotWork,
-        workAtHeight: !!body.workAtHeight,
+        lifting: tasks.lifting,
+        hotWork: tasks.hotWork,
+        workAtHeight: tasks.workAtHeight,
+        confinedSpace: tasks.confinedSpace,
+        highPressure: tasks.highPressure,
       },
       stop_work_seed: { auto_triggers: autoTriggers, criteria: generalCriteria },
       procedure_refs: procedure_refs.map((p) => ({
@@ -1212,7 +1311,7 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
         parseable: p.parseable,
         brief: p.brief,
       })),
-      normative_refs: normativeRefs, // ✅ presente (puede ser [])
+      normative_refs: normativeRefs,
       derived_controls_seed: procedureInfluence.derived_controls,
       checklist_actions_seed: checklistBase,
     };
@@ -1416,52 +1515,48 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
 
     /* =========================
        ✅ FIX COMPLETITUD: hazards/steps NO pueden quedar vacíos
-       (Esto es lo que te estaba faltando)
     ========================= */
-    // 1) hazards fallback
     if ((ats.hazards?.length || 0) === 0) {
       ats.hazards = buildFallbackHazards({
         checklist: mergedChecklist,
-        tasks: { lifting: !!body.lifting, hotWork: !!body.hotWork, workAtHeight: !!body.workAtHeight },
+        tasks,
         environment: ats.environment,
         autoTriggers: ats.stop_work?.auto_triggers || [],
       });
     }
 
-    // 2) steps fallback
     if ((ats.steps?.length || 0) === 0) {
       ats.steps = buildFallbackSteps({
         meta: ats.meta,
         hazards: ats.hazards,
         controls: ats.controls,
-        tasks: { lifting: !!body.lifting, hotWork: !!body.hotWork, workAtHeight: !!body.workAtHeight },
+        tasks,
         checklist: mergedChecklist,
       });
     }
 
-    // 3) endurecer mínimos (por si el modelo devolvió 1 hazard/1 step)
     if ((ats.hazards?.length || 0) < 3) {
       ats.hazards = mergeUnique(
         ats.hazards,
         buildFallbackHazards({
           checklist: mergedChecklist,
-          tasks: { lifting: !!body.lifting, hotWork: !!body.hotWork, workAtHeight: !!body.workAtHeight },
+          tasks,
           environment: ats.environment,
           autoTriggers: ats.stop_work?.auto_triggers || [],
         })
       ).slice(0, 12);
     }
+
     if ((ats.steps?.length || 0) < 4) {
       ats.steps = buildFallbackSteps({
         meta: ats.meta,
         hazards: ats.hazards,
         controls: ats.controls,
-        tasks: { lifting: !!body.lifting, hotWork: !!body.hotWork, workAtHeight: !!body.workAtHeight },
+        tasks,
         checklist: mergedChecklist,
       });
     }
 
-    // 4) Sanitizar steps otra vez por si el fallback metió algo raro
     ats.steps = Array.isArray(ats.steps) ? ats.steps : [];
     ats.steps = ats.steps.map((s: any) => ({
       step: pickString(s?.step, ""),
