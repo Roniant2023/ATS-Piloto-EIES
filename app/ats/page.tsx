@@ -79,17 +79,6 @@ type ATSChecklistActions = {
   snapshot: any;
 };
 
-type ATSRecommendations = {
-  controls?: {
-    engineering?: string[];
-    administrative?: string[];
-    ppe?: string[];
-  };
-  recommendations?: string[];
-  notes?: string[];
-  [key: string]: any;
-};
-
 type ATS = {
   meta: {
     title: string;
@@ -214,10 +203,6 @@ function parseProcedureObject(raw: any, fileName: string): ProcedureRef {
   };
 }
 
-function yes(v: any): boolean {
-  return v === true || v === "true" || v === "sí" || v === "si" || v === "yes";
-}
-
 /* =========================
    COMPONENTE
 ========================= */
@@ -248,11 +233,9 @@ export default function ATSPage() {
   const [terrain, setTerrain] = useState("");
   const [visibility, setVisibility] = useState("");
 
-  const [hazardsText, setHazardsText] = useState("");
-  const [engineeringText, setEngineeringText] = useState("");
-  const [administrativeText, setAdministrativeText] = useState("");
-  const [ppeText, setPpeText] = useState("");
-  const [stepsText, setStepsText] = useState("");
+  // ✅ NUEVO: descripción breve de la tarea
+  const [taskDescription, setTaskDescription] = useState("");
+
   const [normativeRefsText, setNormativeRefsText] = useState("");
 
   const [lifting, setLifting] = useState(false);
@@ -289,27 +272,6 @@ export default function ATSPage() {
     [timeOfDay, weather, temperatureC, humidityPct, wind, lighting, terrain, visibility]
   );
 
-  const hazards = useMemo(() => uniqueStrings(splitLines(hazardsText)), [hazardsText]);
-
-  const baseControls = useMemo(
-    () => ({
-      engineering: uniqueStrings(splitLines(engineeringText)),
-      administrative: uniqueStrings(splitLines(administrativeText)),
-      ppe: uniqueStrings(splitLines(ppeText)),
-    }),
-    [engineeringText, administrativeText, ppeText]
-  );
-
-  const steps = useMemo(
-    () =>
-      splitLines(stepsText).map((step) => ({
-        step,
-        hazards: [],
-        controls: [],
-      })),
-    [stepsText]
-  );
-
   const normativeRefs = useMemo(
     () => normalizeNormativeRefs(normativeRefsText),
     [normativeRefsText]
@@ -330,15 +292,9 @@ export default function ATSPage() {
       });
     }
 
-    if (!ppeVerified) {
-      missing.push("EPP verificado");
-    }
-    if (!toolsInspected) {
-      missing.push("Herramientas inspeccionadas");
-    }
-    if (!areaDelimited) {
-      missing.push("Área delimitada");
-    }
+    if (!ppeVerified) missing.push("EPP verificado");
+    if (!toolsInspected) missing.push("Herramientas inspeccionadas");
+    if (!areaDelimited) missing.push("Área delimitada");
 
     if (workAtHeight && !rescuePlan) {
       critical_fails.push("Trabajo en alturas sin plan de rescate");
@@ -471,17 +427,21 @@ export default function ATSPage() {
         location: location.trim(),
         date,
         shift: shift.trim(),
+
         lifting,
         hotWork,
         workAtHeight,
         confinedSpace,
         highPressure,
+
         environment,
-        hazards,
-        controls: baseControls,
-        steps,
+
+        // ✅ NUEVO: descripción principal para que IA genere hazards/controls/steps
+        taskDescription: taskDescription.trim(),
+
         procedure_refs: procedures,
         normative_refs: normativeRefs,
+
         checklist: checklistPreview.snapshot,
       };
 
@@ -524,12 +484,7 @@ export default function ATSPage() {
     setLighting("");
     setTerrain("");
     setVisibility("");
-
-    setHazardsText("");
-    setEngineeringText("");
-    setAdministrativeText("");
-    setPpeText("");
-    setStepsText("");
+    setTaskDescription("");
     setNormativeRefsText("");
 
     setLifting(false);
@@ -658,55 +613,18 @@ export default function ATSPage() {
             </section>
 
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-lg font-semibold">3. Peligros, controles y pasos</h2>
+              <h2 className="mb-4 text-lg font-semibold">3. Descripción de la tarea</h2>
 
               <div className="grid grid-cols-1 gap-4">
                 <TextArea
-                  label="Peligros identificados"
-                  value={hazardsText}
-                  onChange={setHazardsText}
-                  rows={5}
-                  placeholder={`Un peligro por línea
-Caída de altura
-Caída de objetos
-Atrapamiento
-Líneas presurizadas`}
-                />
-
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                  <TextArea
-                    label="Controles de ingeniería"
-                    value={engineeringText}
-                    onChange={setEngineeringText}
-                    rows={6}
-                    placeholder="Un control por línea"
-                  />
-                  <TextArea
-                    label="Controles administrativos"
-                    value={administrativeText}
-                    onChange={setAdministrativeText}
-                    rows={6}
-                    placeholder="Un control por línea"
-                  />
-                  <TextArea
-                    label="EPP"
-                    value={ppeText}
-                    onChange={setPpeText}
-                    rows={6}
-                    placeholder="Un EPP por línea"
-                  />
-                </div>
-
-                <TextArea
-                  label="Pasos de la tarea"
-                  value={stepsText}
-                  onChange={setStepsText}
-                  rows={5}
-                  placeholder={`Un paso por línea
-Inspección del área
-Aseguramiento del equipo
-Ejecución de la tarea
-Cierre y orden del área`}
+                  label="Describe brevemente lo que se va a hacer"
+                  value={taskDescription}
+                  onChange={setTaskDescription}
+                  rows={6}
+                  placeholder={`Ejemplo:
+Desmontaje y cambio de válvula en línea de alta presión del manifold.
+Se realizará aislamiento, despresurización, retiro de pernos, cambio de elemento y prueba final.
+Participan supervisor, técnico mecánico y ayudante.`}
                 />
 
                 <TextArea
@@ -869,22 +787,13 @@ Procedimiento de trabajo en alturas`}
 
               <div className="space-y-3 text-sm text-slate-700">
                 <div className="rounded-xl bg-slate-50 px-3 py-2">
-                  <strong>Peligros:</strong> {hazards.length}
-                </div>
-                <div className="rounded-xl bg-slate-50 px-3 py-2">
-                  <strong>Controles ingeniería:</strong> {baseControls.engineering.length}
-                </div>
-                <div className="rounded-xl bg-slate-50 px-3 py-2">
-                  <strong>Controles administrativos:</strong> {baseControls.administrative.length}
-                </div>
-                <div className="rounded-xl bg-slate-50 px-3 py-2">
-                  <strong>EPP:</strong> {baseControls.ppe.length}
-                </div>
-                <div className="rounded-xl bg-slate-50 px-3 py-2">
-                  <strong>Pasos:</strong> {steps.length}
+                  <strong>Descripción cargada:</strong> {taskDescription.trim() ? "Sí" : "No"}
                 </div>
                 <div className="rounded-xl bg-slate-50 px-3 py-2">
                   <strong>Procedimientos cargados:</strong> {procedureResults.length}
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <strong>Normas cargadas:</strong> {normativeRefs.length}
                 </div>
               </div>
             </section>
@@ -915,6 +824,12 @@ Procedimiento de trabajo en alturas`}
                 <Info title="Turno" value={atsResult.meta.shift || "-"} />
                 <Info title="Hora del día" value={atsResult.environment?.timeOfDay || "-"} />
               </div>
+
+              <Section title="Descripción de la tarea">
+                <p className="text-sm text-slate-700 whitespace-pre-wrap">
+                  {taskDescription || "No se registró descripción."}
+                </p>
+              </Section>
 
               <Section title="Decisión Stop Work">
                 <p className="mb-3 text-sm text-slate-700">

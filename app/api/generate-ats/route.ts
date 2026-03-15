@@ -7,7 +7,6 @@ import OpenAI from "openai";
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 const ATS_MODEL = process.env.ATS_MODEL || "gpt-4.1-mini";
 
-// ✅ Guardrail configurable (por defecto TRUE para mantener tu política)
 const REQUIRE_LESSON_LEARNED_ON_INCIDENTS =
   (process.env.REQUIRE_LESSON_LEARNED_ON_INCIDENTS ?? "true").toLowerCase() !== "false";
 
@@ -17,11 +16,11 @@ const REQUIRE_LESSON_LEARNED_ON_INCIDENTS =
 function pickString(v: any, fallback = "") {
   return typeof v === "string" ? v : fallback;
 }
+
 function pickArray(v: any) {
   return Array.isArray(v) ? v : [];
 }
 
-/** ✅ evita "undefined", nulls y strings vacíos */
 function safeArrayStrings(v: any): string[] {
   return Array.isArray(v)
     ? v
@@ -34,6 +33,7 @@ function safeArrayStrings(v: any): string[] {
 function mergeUnique(listA: string[], listB: string[]) {
   const out: string[] = [];
   const seen = new Set<string>();
+
   for (const s of [...(listA || []), ...(listB || [])]) {
     const v = String(s || "").trim();
     if (!v) continue;
@@ -41,22 +41,20 @@ function mergeUnique(listA: string[], listB: string[]) {
     seen.add(v);
     out.push(v);
   }
+
   return out;
 }
 
-/** ✅ Normaliza respuestas tipo Si/No con acentos/variantes */
 function normalizeYesNo(v: any): "Si" | "No" | "" {
   const s = String(v ?? "").trim().toLowerCase();
   if (!s) return "";
-  if (["si", "sí", "sÍ", "true", "1", "yes", "y"].includes(s)) return "Si";
+  if (["si", "sí", "true", "1", "yes", "y"].includes(s)) return "Si";
   if (["no", "false", "0", "n"].includes(s)) return "No";
   return "";
 }
 
 /* =========================
-   ✅ Referencias normativas (opcional)
-   🔧 IMPORTANTE: para el schema de OpenAI, fields "opcionales"
-   deben existir pero permitir null.
+   Normativa
 ========================= */
 type NormRef = {
   standard: string;
@@ -67,6 +65,7 @@ type NormRef = {
 
 function normalizeNormRefs(v: any): NormRef[] {
   const arr = Array.isArray(v) ? v : [];
+
   return arr
     .map((x) => ({
       standard: String(x?.standard ?? "").trim(),
@@ -94,8 +93,45 @@ type CriticalTasks = {
   highPressure: boolean;
 };
 
+type ChecklistDecisionHint = "STOP" | "REVIEW_REQUIRED" | "CONTINUE";
+
+type ChecklistAction = {
+  priority: "critical" | "high" | "medium" | "low";
+  category: "administrative" | "engineering" | "ppe";
+  action: string;
+  evidence: string[];
+};
+
+type ChecklistActionsPayload = {
+  decision_hint: ChecklistDecisionHint;
+  missing: string[];
+  critical_fails: string[];
+  derived_controls: {
+    engineering: string[];
+    administrative: string[];
+    ppe: string[];
+  };
+  actions: ChecklistAction[];
+  snapshot: {
+    incidentsReference: string;
+    otherCompanies: string;
+    dangerTypes: string[];
+    environmentDangers: string[];
+    emergencies: string[];
+    safetyEquipment: string[];
+    lifeSavingRules: string[];
+    supervisorChecks: {
+      stagesClarity: string;
+      hazardsControlled: string;
+      isolationConfirmed: string;
+      commsAgreed: string;
+      toolsOk: string;
+    };
+  };
+};
+
 /* =========================
-   Stop Work determinístico (ENTORNO/TAREA)
+   Stop Work determinístico
 ========================= */
 function computeStopWorkTriggers(payload: any) {
   const env = payload?.environment || {};
@@ -127,12 +163,10 @@ function computeStopWorkTriggers(payload: any) {
     }
   }
 
-  if (weather === "Lluvia") {
-    if (tasks.workAtHeight) {
-      triggers.push(
-        "Lluvia: evaluar superficie resbalosa, anclajes y visibilidad; si no hay condiciones seguras → STOP WORK en alturas."
-      );
-    }
+  if (weather === "Lluvia" && tasks.workAtHeight) {
+    triggers.push(
+      "Lluvia: evaluar superficie resbalosa, anclajes y visibilidad; si no hay condiciones seguras → STOP WORK en alturas."
+    );
   }
 
   if (wind === "Fuerte" || weather === "Viento fuerte") {
@@ -142,7 +176,9 @@ function computeStopWorkTriggers(payload: any) {
       );
     }
     if (tasks.workAtHeight) {
-      triggers.push("Viento fuerte: suspender trabajo en alturas si compromete estabilidad o control del trabajador.");
+      triggers.push(
+        "Viento fuerte: suspender trabajo en alturas si compromete estabilidad o control del trabajador."
+      );
     }
   }
 
@@ -153,11 +189,15 @@ function computeStopWorkTriggers(payload: any) {
   }
 
   if (lighting === "Deficiente") {
-    triggers.push("Iluminación deficiente: STOP WORK si no se puede corregir con iluminación artificial adecuada.");
+    triggers.push(
+      "Iluminación deficiente: STOP WORK si no se puede corregir con iluminación artificial adecuada."
+    );
   }
 
   if (timeOfDay === "Noche" && lighting === "") {
-    triggers.push("Trabajo nocturno sin especificar iluminación: STOP WORK hasta confirmar iluminación y controles.");
+    triggers.push(
+      "Trabajo nocturno sin especificar iluminación: STOP WORK hasta confirmar iluminación y controles."
+    );
   }
 
   if (terrain === "Húmedo/Resbaloso" || terrain === "Barro") {
@@ -179,23 +219,23 @@ function computeStopWorkTriggers(payload: any) {
   }
 
   if (humidityPct !== null && humidityPct >= 85 && temperatureC !== null && temperatureC >= 30) {
-    triggers.push("Alta humedad + calor: riesgo de estrés térmico; detener si no hay control administrativo y vigilancia.");
+    triggers.push(
+      "Alta humedad + calor: riesgo de estrés térmico; detener si no hay control administrativo y vigilancia."
+    );
   }
 
-  if (weather === "Neblina") {
-    if (tasks.lifting) {
-      triggers.push("Neblina: STOP WORK para izaje si la visibilidad compromete señalización, señalero y control de área.");
-    }
+  if (weather === "Neblina" && tasks.lifting) {
+    triggers.push(
+      "Neblina: STOP WORK para izaje si la visibilidad compromete señalización, señalero y control de área."
+    );
   }
 
-  // ✅ Espacios confinados
   if (tasks.confinedSpace) {
     triggers.push(
       "Espacio confinado: detener el trabajo si no se cuenta con monitoreo de gases, ventilación adecuada, permiso vigente o vigía designado."
     );
   }
 
-  // ✅ Altas presiones
   if (tasks.highPressure) {
     triggers.push(
       "Altas presiones: detener el trabajo si no se ha confirmado aislamiento, despresurización, integridad de conexiones y control de energía."
@@ -210,7 +250,8 @@ function computeStopWorkTriggers(payload: any) {
 ========================= */
 function normalizeEnvironment(env: any) {
   const e = env && typeof env === "object" ? env : {};
-  const toStrOrNull = (v: any) => (typeof v === "string" && v.trim() ? v : null);
+  const toStrOrNull = (v: any) =>
+    typeof v === "string" && v.trim() ? v : null;
 
   return {
     timeOfDay: toStrOrNull(e.timeOfDay),
@@ -237,7 +278,9 @@ function normalizeProcedureRef(p: any) {
 
   const brief = p?.brief && typeof p.brief === "object" ? p.brief : {};
   const critical =
-    brief?.critical_controls && typeof brief.critical_controls === "object" ? brief.critical_controls : {};
+    brief?.critical_controls && typeof brief.critical_controls === "object"
+      ? brief.critical_controls
+      : {};
 
   return {
     title,
@@ -301,7 +344,7 @@ function buildProcedureInfluence(procedure_refs: any[]) {
 }
 
 /* =========================
-   ✅ Lección aprendida: extracción robusta
+   Lección aprendida
 ========================= */
 function extractLessonLearnedRef(body: any) {
   const ll =
@@ -337,43 +380,6 @@ function extractLessonLearnedRef(body: any) {
 /* =========================
    Checklist Estrella
 ========================= */
-type ChecklistDecisionHint = "STOP" | "REVIEW_REQUIRED" | "CONTINUE";
-
-type ChecklistAction = {
-  priority: "critical" | "high" | "medium" | "low";
-  category: "administrative" | "engineering" | "ppe";
-  action: string;
-  evidence: string[];
-};
-
-type ChecklistActionsPayload = {
-  decision_hint: ChecklistDecisionHint;
-  missing: string[];
-  critical_fails: string[];
-  derived_controls: {
-    engineering: string[];
-    administrative: string[];
-    ppe: string[];
-  };
-  actions: ChecklistAction[];
-  snapshot: {
-    incidentsReference: string;
-    otherCompanies: string;
-    dangerTypes: string[];
-    environmentDangers: string[];
-    emergencies: string[];
-    safetyEquipment: string[];
-    lifeSavingRules: string[];
-    supervisorChecks: {
-      stagesClarity: string;
-      hazardsControlled: string;
-      isolationConfirmed: string;
-      commsAgreed: string;
-      toolsOk: string;
-    };
-  };
-};
-
 function deriveChecklistDeterministic(estrella: any, body: any): ChecklistActionsPayload {
   const s = estrella && typeof estrella === "object" ? estrella : {};
 
@@ -509,9 +515,11 @@ function deriveChecklistDeterministic(estrella: any, body: any): ChecklistAction
   }
 
   let decision_hint: ChecklistDecisionHint = "CONTINUE";
-  if (criticalFails.length > 0) decision_hint = "STOP";
-  else if (missing.length > 0 || actions.some((a) => a.priority === "high" || a.priority === "medium"))
+  if (criticalFails.length > 0) {
+    decision_hint = "STOP";
+  } else if (missing.length > 0 || actions.some((a) => a.priority === "high" || a.priority === "medium")) {
     decision_hint = "REVIEW_REQUIRED";
+  }
 
   return {
     decision_hint,
@@ -531,22 +539,34 @@ function deriveChecklistDeterministic(estrella: any, body: any): ChecklistAction
       emergencies,
       safetyEquipment,
       lifeSavingRules,
-      supervisorChecks: { stagesClarity, hazardsControlled, isolationConfirmed, commsAgreed, toolsOk },
+      supervisorChecks: {
+        stagesClarity,
+        hazardsControlled,
+        isolationConfirmed,
+        commsAgreed,
+        toolsOk,
+      },
     },
   };
 }
 
-function sanitizeChecklistActions(x: any, fallback: ChecklistActionsPayload): ChecklistActionsPayload {
+function sanitizeChecklistActions(
+  x: any,
+  fallback: ChecklistActionsPayload
+): ChecklistActionsPayload {
   const o = x && typeof x === "object" ? x : fallback;
 
-  const decision_hint: ChecklistDecisionHint = (["STOP", "REVIEW_REQUIRED", "CONTINUE"] as const).includes(o.decision_hint)
-    ? o.decision_hint
-    : fallback.decision_hint;
+  const decision_hint: ChecklistDecisionHint =
+    (["STOP", "REVIEW_REQUIRED", "CONTINUE"] as const).includes(o.decision_hint)
+      ? o.decision_hint
+      : fallback.decision_hint;
 
   const actions: ChecklistAction[] = Array.isArray(o.actions)
     ? o.actions
         .map((a: any) => ({
-          priority: (["critical", "high", "medium", "low"] as const).includes(a?.priority) ? a.priority : "medium",
+          priority: (["critical", "high", "medium", "low"] as const).includes(a?.priority)
+            ? a.priority
+            : "medium",
           category: (["administrative", "engineering", "ppe"] as const).includes(a?.category)
             ? a.category
             : "administrative",
@@ -562,7 +582,10 @@ function sanitizeChecklistActions(x: any, fallback: ChecklistActionsPayload): Ch
     ppe: safeArrayStrings(o?.derived_controls?.ppe),
   };
 
-  const snapshot = o.snapshot && typeof o.snapshot === "object" ? o.snapshot : (fallback.snapshot as any);
+  const snapshot =
+    o.snapshot && typeof o.snapshot === "object"
+      ? o.snapshot
+      : (fallback.snapshot as any);
 
   return {
     decision_hint,
@@ -581,30 +604,36 @@ function sanitizeChecklistActions(x: any, fallback: ChecklistActionsPayload): Ch
 /* =========================
    IA opcional para checklist
 ========================= */
-async function enrichChecklistWithAI(base: ChecklistActionsPayload, body: any): Promise<ChecklistActionsPayload> {
+async function enrichChecklistWithAI(
+  base: ChecklistActionsPayload,
+  body: any
+): Promise<ChecklistActionsPayload> {
   if (!process.env.OPENAI_API_KEY) return base;
 
   const hasSignal =
-    (base?.actions?.length || 0) > 0 || (base?.missing?.length || 0) > 0 || (base?.critical_fails?.length || 0) > 0;
+    (base?.actions?.length || 0) > 0 ||
+    (base?.missing?.length || 0) > 0 ||
+    (base?.critical_fails?.length || 0) > 0;
 
   if (!hasSignal) return base;
 
   const prompt = `
-Eres un especialista HSEQ corporativo. 
-A partir de un checklist (formato empresa) debes:
-1) Mejorar y concretar "actions" (acciones) para que sean verificables y auditables.
-2) Mantener la jerarquía: engineering, administrative, ppe.
-3) NO inventes procedimientos ni permisos específicos. Si faltan datos, dilo como "requiere verificación".
-4) Devuelve SOLO JSON con la misma estructura recibida, sin campos nuevos.
+Eres un especialista HSEQ corporativo.
+A partir de un checklist debes:
+1) Mejorar y concretar actions para que sean verificables y auditables.
+2) Mantener jerarquía: engineering, administrative, ppe.
+3) No inventes procedimientos ni permisos específicos.
+4) Devuelve SOLO JSON con la misma estructura recibida.
 
-Notas:
-- Si hay critical_fails -> decision_hint debe permanecer STOP.
+Reglas:
+- Si hay critical_fails -> decision_hint debe seguir en STOP.
 - Si no hay critical_fails pero hay missing -> decision_hint debe ser REVIEW_REQUIRED.
 `.trim();
 
   const input = {
     base,
     context: {
+      taskDescription: pickString(body?.taskDescription, ""),
       tasks: {
         lifting: !!body?.lifting,
         hotWork: !!body?.hotWork,
@@ -631,16 +660,20 @@ Notas:
         ],
       },
     ],
-    max_output_tokens: 800,
+    max_output_tokens: 900,
   });
 
   const out = (response.output_text || "").trim();
+
   try {
     const parsed = JSON.parse(out);
 
-    if ((base?.critical_fails?.length || 0) > 0) parsed.decision_hint = "STOP";
-    if ((base?.critical_fails?.length || 0) === 0 && (base?.missing?.length || 0) > 0)
+    if ((base?.critical_fails?.length || 0) > 0) {
+      parsed.decision_hint = "STOP";
+    }
+    if ((base?.critical_fails?.length || 0) === 0 && (base?.missing?.length || 0) > 0) {
       parsed.decision_hint = "REVIEW_REQUIRED";
+    }
 
     return sanitizeChecklistActions(parsed, base);
   } catch {
@@ -649,15 +682,16 @@ Notas:
 }
 
 /* =========================
-   ✅ Fallbacks (cuando el modelo devuelve hazards/steps vacíos)
+   Fallbacks
 ========================= */
 function buildFallbackHazards(params: {
   checklist: ChecklistActionsPayload;
   tasks: CriticalTasks;
   environment: ReturnType<typeof normalizeEnvironment>;
   autoTriggers: string[];
+  taskDescription: string;
 }) {
-  const { checklist, tasks, environment, autoTriggers } = params;
+  const { checklist, tasks, environment, autoTriggers, taskDescription } = params;
 
   let hazards = mergeUnique(
     safeArrayStrings(checklist?.snapshot?.dangerTypes),
@@ -687,6 +721,29 @@ function buildFallbackHazards(params: {
   if (tasks.highPressure) {
     hazards = mergeUnique(hazards, [
       "Líneas o equipos de alta presión: liberación de energía, latigazo de mangueras, proyección de fluidos.",
+    ]);
+  }
+
+  const desc = String(taskDescription || "").toLowerCase();
+
+  if (desc.includes("válvula") || desc.includes("valvula")) {
+    hazards = mergeUnique(hazards, [
+      "Intervención de válvulas/accesorios: atrapamiento de manos, liberación inesperada de presión o producto.",
+    ]);
+  }
+  if (desc.includes("manguera")) {
+    hazards = mergeUnique(hazards, [
+      "Mangueras y conexiones: latigazo, desacople inesperado y proyección de fluidos.",
+    ]);
+  }
+  if (desc.includes("línea") || desc.includes("linea") || desc.includes("manifold")) {
+    hazards = mergeUnique(hazards, [
+      "Intervención en línea de proceso: liberación de energía, fugas, exposición a fluidos o presión residual.",
+    ]);
+  }
+  if (desc.includes("equipo") || desc.includes("bomba") || desc.includes("motor")) {
+    hazards = mergeUnique(hazards, [
+      "Intervención de equipos: atrapamiento, energización inesperada, contacto con partes móviles.",
     ]);
   }
 
@@ -731,59 +788,147 @@ function buildFallbackHazards(params: {
   return hazards;
 }
 
+function buildFallbackControls(params: {
+  tasks: CriticalTasks;
+  checklist: ChecklistActionsPayload;
+  procedureInfluence: ReturnType<typeof buildProcedureInfluence>;
+  taskDescription: string;
+}) {
+  const { tasks, checklist, procedureInfluence, taskDescription } = params;
+
+  const engineering: string[] = [];
+  const administrative: string[] = [];
+  const ppe: string[] = [];
+
+  engineering.push(...safeArrayStrings(checklist?.derived_controls?.engineering));
+  administrative.push(...safeArrayStrings(checklist?.derived_controls?.administrative));
+  ppe.push(...safeArrayStrings(checklist?.derived_controls?.ppe));
+
+  const procDerived = Array.isArray(procedureInfluence?.derived_controls)
+    ? procedureInfluence.derived_controls
+    : [];
+
+  for (const item of procDerived) {
+    if (item?.level === "engineering") engineering.push(item.control);
+    if (item?.level === "administrative") administrative.push(item.control);
+    if (item?.level === "ppe") ppe.push(item.control);
+  }
+
+  administrative.push("Realizar charla preoperacional y confirmar roles/responsables.");
+  administrative.push("Inspección preoperacional del área, herramientas y equipos.");
+  administrative.push("Mantener orden y aseo durante la ejecución.");
+  administrative.push("Detener el trabajo ante cambios no controlados en la tarea o el entorno.");
+
+  ppe.push("Casco de seguridad.");
+  ppe.push("Botas de seguridad.");
+  ppe.push("Guantes adecuados a la tarea.");
+  ppe.push("Gafas de seguridad.");
+
+  if (tasks.workAtHeight) {
+    engineering.push("Verificar punto de anclaje o sistema anticaídas certificado.");
+    administrative.push("Validar permiso y personal autorizado para trabajo en alturas.");
+    ppe.push("Arnés de seguridad con sistema anticaídas.");
+  }
+
+  if (tasks.hotWork) {
+    engineering.push("Retiro o protección de materiales combustibles del área.");
+    administrative.push("Aplicar permiso de trabajo en caliente.");
+    administrative.push("Ubicar extintor operativo y vigía de fuego si aplica.");
+    ppe.push("Protección facial y ropa adecuada contra chispas/proyecciones.");
+  }
+
+  if (tasks.lifting) {
+    engineering.push("Definir zona de exclusión y verificar accesorios de izaje.");
+    administrative.push("Aplicar plan de izaje y comunicación señalero-operador.");
+    ppe.push("Casco con barbuquejo si aplica.");
+  }
+
+  if (tasks.confinedSpace) {
+    engineering.push("Ventilación adecuada del espacio y control de accesos.");
+    administrative.push("Permiso de ingreso a espacio confinado.");
+    administrative.push("Monitoreo continuo de gases y vigía externo.");
+    ppe.push("Protección respiratoria según evaluación atmosférica.");
+  }
+
+  if (tasks.highPressure) {
+    engineering.push("Verificar aislamiento mecánico, despresurización y barreras.");
+    administrative.push("Confirmar energía cero antes de intervenir la línea o equipo.");
+    ppe.push("Protección facial y corporal según riesgo por fluido/presión.");
+  }
+
+  const desc = String(taskDescription || "").toLowerCase();
+  if (desc.includes("válvula") || desc.includes("valvula")) {
+    administrative.push("Verificar posición segura, aislamiento y condición de la válvula antes de intervenir.");
+  }
+  if (desc.includes("manguera")) {
+    engineering.push("Inspeccionar integridad de mangueras y conexiones antes de operar.");
+  }
+
+  return {
+    engineering: mergeUnique([], engineering),
+    administrative: mergeUnique([], administrative),
+    ppe: mergeUnique([], ppe),
+  };
+}
+
 function buildFallbackSteps(params: {
   meta: { title: string; company: string; location: string; date: string; shift: string };
   hazards: string[];
   controls: { engineering: string[]; administrative: string[]; ppe: string[] };
   tasks: CriticalTasks;
   checklist: ChecklistActionsPayload;
+  taskDescription: string;
 }) {
-  const { meta, hazards, controls, tasks, checklist } = params;
+  const { meta, hazards, controls, tasks, checklist, taskDescription } = params;
 
   const topHazards = hazards.slice(0, Math.min(6, hazards.length));
   const topControls = mergeUnique(
     mergeUnique(controls.engineering, controls.administrative),
     controls.ppe
-  ).slice(0, 8);
+  ).slice(0, 10);
 
   const steps: Array<{ step: string; hazards: string[]; controls: string[] }> = [];
 
   steps.push({
-    step: "1) Charla preoperacional, roles, comunicación y verificación de competencias.",
+    step: "1) Charla preoperacional, revisión del alcance, roles, permisos y comunicación.",
     hazards: topHazards,
     controls: mergeUnique(
-      ["Definir roles, responsable del trabajo, canales de comunicación y señales (incluye señalero si aplica)."],
+      ["Definir responsable del trabajo, roles del equipo y condiciones de inicio."],
       safeArrayStrings(checklist?.actions?.map((a) => a.action)).slice(0, 3)
     ),
   });
 
   steps.push({
-    step: "2) Inspección del área, demarcación, control de accesos y verificación de condiciones (ambiente/orden y aseo).",
+    step: "2) Inspección del área, demarcación, orden y aseo, y verificación de condiciones del entorno.",
     hazards: topHazards,
     controls: mergeUnique(
       [
-        "Delimitar y señalizar el área; establecer zonas de exclusión y rutas seguras.",
-        "Verificar iluminación/visibilidad/terreno y ajustar controles antes de iniciar.",
+        "Delimitar y señalizar el área.",
+        "Verificar accesos, interferencias, iluminación, visibilidad y terreno.",
       ],
       topControls
     ),
   });
 
   steps.push({
-    step: "3) Verificación de equipos/herramientas y controles críticos antes de iniciar (incluye EPP).",
+    step: "3) Verificación de aislamiento, herramientas, equipos y controles críticos antes de iniciar.",
     hazards: topHazards,
     controls: mergeUnique(
-      ["Inspección preoperacional de equipos/herramientas; detener si hay defectos críticos."],
+      [
+        "Confirmar condiciones seguras, inspección preoperacional y disponibilidad de EPP.",
+      ],
       topControls
     ),
   });
 
   if (tasks.lifting) {
     steps.push({
-      step: "4) Ejecución de izaje/manejo de carga con control de zona de exclusión y comunicación señalero-operador.",
-      hazards: mergeUnique(topHazards, ["Caída de carga, golpeado por carga, atrapamiento, interacción con equipos móviles."]),
+      step: "4) Ejecución del izaje con control de zona de exclusión y comunicación señalero-operador.",
+      hazards: mergeUnique(topHazards, ["Caída de carga, atrapamiento y golpeado por carga."]),
       controls: mergeUnique(
-        ["Aplicar plan de izaje (si aplica), verificar accesorios, puntos de izaje y capacidad; usar señalero competente."],
+        [
+          "Verificar accesorios, puntos de izaje, capacidad y señalero competente.",
+        ],
         topControls
       ),
     });
@@ -791,10 +936,12 @@ function buildFallbackSteps(params: {
 
   if (tasks.hotWork) {
     steps.push({
-      step: "4) Ejecución de trabajo en caliente con control de ignición y vigilancia de incendio.",
-      hazards: mergeUnique(topHazards, ["Incendio/quemaduras, chispas/proyección, atmósfera inflamable, humos."]),
+      step: "4) Ejecución del trabajo en caliente controlando fuentes de ignición y exposición a chispas.",
+      hazards: mergeUnique(topHazards, ["Incendio, quemaduras, proyección de partículas y humos."]),
       controls: mergeUnique(
-        ["Validar permiso de trabajo en caliente (si aplica), extintor operativo, retirar combustibles y mantener vigilancia de fuego."],
+        [
+          "Permiso vigente, extintor disponible, materiales combustibles controlados y vigilancia de fuego.",
+        ],
         topControls
       ),
     });
@@ -802,10 +949,12 @@ function buildFallbackSteps(params: {
 
   if (tasks.workAtHeight) {
     steps.push({
-      step: "4) Ejecución de trabajo en alturas con sistema anticaídas y control de caída de objetos.",
-      hazards: mergeUnique(topHazards, ["Caída a distinto nivel, anclajes inadecuados, caída de objetos."]),
+      step: "4) Ejecución del trabajo en alturas con sistema anticaídas y control de caída de objetos.",
+      hazards: mergeUnique(topHazards, ["Caída a distinto nivel y caída de objetos."]),
       controls: mergeUnique(
-        ["Verificar anclajes/linea de vida, plan de rescate (si aplica) y uso correcto del arnés/sistema anticaídas."],
+        [
+          "Verificar anclajes, línea de vida, plan de rescate y uso correcto del arnés.",
+        ],
         topControls
       ),
     });
@@ -813,17 +962,11 @@ function buildFallbackSteps(params: {
 
   if (tasks.confinedSpace) {
     steps.push({
-      step: "4) Ingreso a espacio confinado con monitoreo atmosférico continuo y vigía designado.",
-      hazards: mergeUnique(topHazards, [
-        "Atmósfera peligrosa, intoxicación por gases, rescate complejo.",
-      ]),
+      step: "4) Ingreso y ejecución en espacio confinado con monitoreo continuo y vigía externo.",
+      hazards: mergeUnique(topHazards, ["Atmósfera peligrosa, intoxicación y rescate complejo."]),
       controls: mergeUnique(
         [
-          "Permiso de trabajo para espacio confinado.",
-          "Monitoreo continuo de gases.",
-          "Ventilación forzada si aplica.",
-          "Vigía externo permanente.",
-          "Plan de rescate disponible.",
+          "Monitoreo atmosférico, ventilación adecuada, permiso vigente y vigía externo permanente.",
         ],
         topControls
       ),
@@ -832,16 +975,11 @@ function buildFallbackSteps(params: {
 
   if (tasks.highPressure) {
     steps.push({
-      step: "4) Intervención en sistema de alta presión verificando aislamiento y energía cero.",
-      hazards: mergeUnique(topHazards, [
-        "Liberación de energía, latigazo de mangueras, proyección de fluidos.",
-      ]),
+      step: "4) Intervención del sistema de alta presión verificando aislamiento, energía cero y condición segura de conexiones.",
+      hazards: mergeUnique(topHazards, ["Liberación de energía, latigazo de mangueras y proyección de fluidos."]),
       controls: mergeUnique(
         [
-          "Verificar aislamiento y energía cero.",
-          "Instalar barreras o zonas de exclusión.",
-          "Inspección de conexiones y mangueras.",
-          "Uso de EPP especializado.",
+          "Confirmar despresurización, aislamiento, integridad de conexiones y EPP especializado.",
         ],
         topControls
       ),
@@ -850,18 +988,21 @@ function buildFallbackSteps(params: {
 
   if (!tasks.lifting && !tasks.hotWork && !tasks.workAtHeight && !tasks.confinedSpace && !tasks.highPressure) {
     steps.push({
-      step: "4) Ejecución del trabajo según plan y controles definidos.",
+      step: taskDescription?.trim()
+        ? `4) Ejecución de la tarea: ${taskDescription.trim()}`
+        : "4) Ejecución del trabajo según plan y controles definidos.",
       hazards: topHazards,
       controls: topControls,
     });
   }
 
   steps.push({
-    step: "5) Cierre del trabajo: retiro de demarcación, housekeeping, verificación final y registro de novedades.",
-    hazards: ["Exposición residual por energías/orden y aseo, interacción con equipos en retiro."],
+    step: "5) Cierre del trabajo, verificación final, retiro de demarcación y housekeeping.",
+    hazards: ["Exposición residual por energías, objetos o interacción con equipos durante el cierre."],
     controls: [
-      "Asegurar condición segura final del área, retiro controlado de señalización y entrega del sitio.",
-      "Registrar observaciones/incidentes/casi-incidentes y controles implementados.",
+      "Asegurar condición final segura del área.",
+      "Retirar señalización de manera controlada.",
+      "Registrar observaciones, incidentes o novedades.",
       `Registrar ATS: ${meta.title} | ${meta.location} | ${meta.date} | Turno: ${meta.shift}`,
     ],
   });
@@ -1036,7 +1177,6 @@ const ATS_SCHEMA = {
         decision_hint: { type: "string", enum: ["STOP", "REVIEW_REQUIRED", "CONTINUE"] },
         missing: { type: "array", items: { type: "string" } },
         critical_fails: { type: "array", items: { type: "string" } },
-
         derived_controls: {
           type: "object",
           additionalProperties: false,
@@ -1047,7 +1187,6 @@ const ATS_SCHEMA = {
           },
           required: ["engineering", "administrative", "ppe"],
         },
-
         actions: {
           type: "array",
           items: {
@@ -1062,7 +1201,6 @@ const ATS_SCHEMA = {
             required: ["priority", "category", "action", "evidence"],
           },
         },
-
         snapshot: {
           type: "object",
           additionalProperties: false,
@@ -1175,14 +1313,13 @@ export async function POST(req: Request) {
       highPressure: !!body.highPressure,
     };
 
-    // ✅ Normativa opcional
+    const taskDescription = pickString(body?.taskDescription, "");
+
     const normativeRefs = normalizeNormRefs(body?.normative_refs);
 
-    // ✅ Checklist base determinístico
     const estrella = body?.estrella_format ?? null;
     const checklistBase = deriveChecklistDeterministic(estrella, body);
 
-    // ✅ Lección aprendida requerida si Incidentes = "Si"
     const incidentsFlag = normalizeYesNo(checklistBase?.snapshot?.incidentsReference);
     const lessonLearnedRef = extractLessonLearnedRef(body);
 
@@ -1206,25 +1343,30 @@ export async function POST(req: Request) {
             priority: "high",
             category: "administrative",
             action:
-              "Adjuntar y revisar una Lección Aprendida (procesada con /api/lesson-learned-brief) antes de iniciar. Socializar controles y validar aplicabilidad.",
+              "Adjuntar y revisar una Lección Aprendida antes de iniciar. Socializar controles y validar aplicabilidad.",
             evidence: ["Incidentes = Sí", "Lección aprendida pendiente"],
           },
         ];
-        if (checklistBase.decision_hint === "CONTINUE") checklistBase.decision_hint = "REVIEW_REQUIRED";
+        if (checklistBase.decision_hint === "CONTINUE") {
+          checklistBase.decision_hint = "REVIEW_REQUIRED";
+        }
       }
     }
 
-    // Procedimientos + Lección aprendida
     const procedure_refs_raw = pickArray(body?.procedure_refs);
-    const procedure_refs_combined = lessonLearnedRef ? [...procedure_refs_raw, lessonLearnedRef] : procedure_refs_raw;
+    const procedure_refs_combined = lessonLearnedRef
+      ? [...procedure_refs_raw, lessonLearnedRef]
+      : procedure_refs_raw;
 
     const procedure_refs = procedure_refs_combined.map(normalizeProcedureRef);
     const procedureInfluence = buildProcedureInfluence(procedure_refs);
 
-    // Stop Work determinístico + aporte de lección aprendida
     const autoTriggersEnv = computeStopWorkTriggers({ ...body, environment });
 
-    const lessonStopWork = lessonLearnedRef ? safeArrayStrings(lessonLearnedRef?.brief?.stop_work) : [];
+    const lessonStopWork = lessonLearnedRef
+      ? safeArrayStrings(lessonLearnedRef?.brief?.stop_work)
+      : [];
+
     const autoTriggers = mergeUnique(
       autoTriggersEnv,
       lessonStopWork.map((x) => `Lección aprendida: ${x}`)
@@ -1247,54 +1389,53 @@ export async function POST(req: Request) {
     };
 
     const prompt = `
-Eres un experto corporativo HSEQ/Seguridad de Procesos.
-Genera un ATS (Análisis de Trabajo Seguro) técnico, claro y auditable, en ESPAÑOL, para operaciones industriales.
+Eres un experto corporativo HSEQ y seguridad de procesos.
+Debes generar un ATS (Análisis de Trabajo Seguro) en ESPAÑOL, técnico, claro, práctico y auditable.
 
-REQUISITOS CRÍTICOS:
-1) STOP WORK:
-- Si stop_work.auto_triggers NO está vacío:
-  - Inclúyelos EXACTAMENTE en stop_work.auto_triggers
-  - Y stop_work.decision debe ser "STOP" o "REVIEW_REQUIRED" (nunca "CONTINUE")
-  - Explica en stop_work.rationale.
+Reglas obligatorias:
+1. Usa como base principal:
+- descripción de la tarea
+- entorno
+- tareas críticas
+- procedimientos cargados
+- checklist corporativo
+- referencias normativas
 
-2) PROCEDIMIENTOS / LECCIONES APRENDIDAS:
-- Refleja qué documentos se usaron en procedure_refs_used (título/código/origen).
-- Usa los briefs para sugerir controles y pasos sin copiar texto completo.
-- Integra controles con jerarquía: ingeniería → administrativos → EPP.
-- Si hay "Lección aprendida", úsala para:
-  a) reforzar peligros/controles/pasos
-  b) reforzar la justificación en stop_work.rationale cuando aplique
-  c) priorizar controles críticos verificables.
+2. Debes generar SIEMPRE:
+- hazards con mínimo 3 ítems
+- controls separados en engineering, administrative y ppe
+- steps con mínimo 4 pasos
 
-3) CHECKLIST CORPORATIVO:
-- Se adjunta checklist_actions_seed (derivado del Formato Estrella).
-- Inclúyelo como "checklist_actions" en el ATS final.
-- No inventes datos; si faltan, mantén "missing".
+3. STOP WORK:
+- Si auto_triggers no está vacío, la decisión nunca puede ser CONTINUE.
+- Debe ser STOP o REVIEW_REQUIRED.
+- Explica claramente la razón.
 
-4) REFERENCIAS NORMATIVAS:
-- normative_refs siempre estará presente (puede venir vacío).
-- Úsalas si vienen, pero NO inventes cláusulas o artículos no incluidos.
-- Si el usuario no trae clause, usa clause=null.
-- Recomendación por buena práctica (no anclada a norma): based_on=[] y verification="requires_verification".
-- Si está anclada a una norma citada: verification="ok" (siempre que sea claro).
-- Incluye recommendations (máximo 10), concretas y verificables.
+4. Procedimientos:
+- Refleja los documentos usados en procedure_refs_used.
+- Usa sus brief para reforzar controles y pasos.
+- No copies párrafos completos.
 
-5) COMPLETITUD:
-- El ATS NO puede quedar con hazards vacío ni con steps vacío.
-- Debe incluir al menos 3 hazards y al menos 4 steps.
+5. Normativa:
+- Usa normative_refs si vienen.
+- No inventes artículos ni cláusulas.
+- Si no hay anclaje claro, verification debe ser "requires_verification".
 
-6) TAREAS CRÍTICAS POSIBLES:
-- Izaje
-- Trabajo en caliente
-- Trabajo en alturas
-- Espacios confinados
-- Sistemas de alta presión
+6. Checklist:
+- Incluye checklist_actions en la salida.
+- No inventes datos faltantes.
 
-Devuelve SOLO JSON que cumpla el schema (sin markdown).
+7. Contexto de tarea:
+- La descripción breve de tarea puede contener información operativa clave como:
+  desmontaje, cambio de válvula, intervención de línea, mantenimiento, equipos, mangueras, manifolds, conexiones, etc.
+- Debes inferir peligros y controles razonables en un contexto industrial.
+
+Devuelve SOLO JSON válido según el schema.
 `.trim();
 
     const inputPayload = {
       meta,
+      task_description: taskDescription,
       environment,
       tasks: {
         lifting: tasks.lifting,
@@ -1303,7 +1444,10 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
         confinedSpace: tasks.confinedSpace,
         highPressure: tasks.highPressure,
       },
-      stop_work_seed: { auto_triggers: autoTriggers, criteria: generalCriteria },
+      stop_work_seed: {
+        auto_triggers: autoTriggers,
+        criteria: generalCriteria,
+      },
       procedure_refs: procedure_refs.map((p) => ({
         title: p.title,
         code: p.code,
@@ -1327,7 +1471,7 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
           ],
         },
       ],
-      max_output_tokens: 2400,
+      max_output_tokens: 2600,
       text: {
         format: {
           type: "json_schema",
@@ -1363,9 +1507,6 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
       };
     }
 
-    /* =========================
-       Post-procesado determinístico (cumplir schema)
-    ========================= */
     ats.meta = {
       title: pickString(ats?.meta?.title, meta.title),
       company: pickString(ats?.meta?.company, meta.company),
@@ -1395,7 +1536,9 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
     ats.stop_work.criteria = generalCriteria;
     ats.stop_work.rationale = pickString(
       ats.stop_work.rationale,
-      autoTriggers.length ? "Condiciones críticas detectadas; requiere revisión." : "Sin condiciones críticas detectadas."
+      autoTriggers.length
+        ? "Condiciones críticas detectadas; requiere revisión."
+        : "Sin condiciones críticas detectadas."
     );
 
     if (autoTriggers.length && ats.stop_work.decision === "CONTINUE") {
@@ -1404,6 +1547,7 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
         (ats.stop_work.rationale ? ats.stop_work.rationale + " " : "") +
         "Hay condiciones críticas detectadas automáticamente; se requiere revisión y control antes de continuar.";
     }
+
     if (!autoTriggers.length && !["STOP", "CONTINUE", "REVIEW_REQUIRED"].includes(ats.stop_work.decision)) {
       ats.stop_work.decision = "CONTINUE";
     }
@@ -1411,7 +1555,6 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
     ats.procedure_refs_used = procedureInfluence.applied;
     ats.procedure_influence = procedureInfluence;
 
-    // Checklist + IA opcional
     const checklistFromModel = ats?.checklist_actions ?? checklistBase;
     const enriched = await enrichChecklistWithAI(checklistBase, body);
 
@@ -1423,46 +1566,51 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
       checklistBase
     );
 
-    // Guardrails finales checklist
-    if ((checklistBase?.critical_fails?.length || 0) > 0) mergedChecklist.decision_hint = "STOP";
+    if ((checklistBase?.critical_fails?.length || 0) > 0) {
+      mergedChecklist.decision_hint = "STOP";
+    }
     if ((checklistBase?.critical_fails?.length || 0) === 0 && (checklistBase?.missing?.length || 0) > 0) {
-      if (mergedChecklist.decision_hint === "CONTINUE") mergedChecklist.decision_hint = "REVIEW_REQUIRED";
+      if (mergedChecklist.decision_hint === "CONTINUE") {
+        mergedChecklist.decision_hint = "REVIEW_REQUIRED";
+      }
     }
 
     ats.checklist_actions = mergedChecklist;
 
-    // Controles derivados del checklist
-    const derived = mergedChecklist?.derived_controls || { engineering: [], administrative: [], ppe: [] };
-    ats.controls.administrative = mergeUnique(ats.controls.administrative, safeArrayStrings(derived.administrative));
-    ats.controls.ppe = mergeUnique(ats.controls.ppe, safeArrayStrings(derived.ppe));
-    ats.controls.engineering = mergeUnique(ats.controls.engineering, safeArrayStrings(derived.engineering));
+    const fallbackControls = buildFallbackControls({
+      tasks,
+      checklist: mergedChecklist,
+      procedureInfluence,
+      taskDescription,
+    });
 
-    // Controles derivados de procedimientos/lección aprendida
-    const procDerived = Array.isArray(procedureInfluence?.derived_controls) ? procedureInfluence.derived_controls : [];
-    const procAdmin = procDerived.filter((x: any) => x?.level === "administrative").map((x: any) => x?.control);
-    const procPpe = procDerived.filter((x: any) => x?.level === "ppe").map((x: any) => x?.control);
-    const procEng = procDerived.filter((x: any) => x?.level === "engineering").map((x: any) => x?.control);
+    ats.controls.engineering = mergeUnique(
+      mergeUnique(ats.controls.engineering, fallbackControls.engineering),
+      safeArrayStrings(mergedChecklist?.derived_controls?.engineering)
+    );
+    ats.controls.administrative = mergeUnique(
+      mergeUnique(ats.controls.administrative, fallbackControls.administrative),
+      safeArrayStrings(mergedChecklist?.derived_controls?.administrative)
+    );
+    ats.controls.ppe = mergeUnique(
+      mergeUnique(ats.controls.ppe, fallbackControls.ppe),
+      safeArrayStrings(mergedChecklist?.derived_controls?.ppe)
+    );
 
-    ats.controls.administrative = mergeUnique(ats.controls.administrative, safeArrayStrings(procAdmin));
-    ats.controls.ppe = mergeUnique(ats.controls.ppe, safeArrayStrings(procPpe));
-    ats.controls.engineering = mergeUnique(ats.controls.engineering, safeArrayStrings(procEng));
-
-    // Ajustar STOP WORK según checklist
     const hint = mergedChecklist?.decision_hint as ChecklistDecisionHint;
 
     if (hint === "STOP" && ats.stop_work.decision !== "STOP") {
       ats.stop_work.decision = "STOP";
       ats.stop_work.rationale =
         (ats.stop_work.rationale ? ats.stop_work.rationale + " " : "") +
-        "Checklist corporativo (Formato Estrella) indica STOP por verificación negativa o control crítico no cumplido.";
+        "Checklist corporativo indica STOP por verificación negativa o control crítico no cumplido.";
     } else if (hint === "REVIEW_REQUIRED" && ats.stop_work.decision === "CONTINUE") {
       ats.stop_work.decision = "REVIEW_REQUIRED";
       ats.stop_work.rationale =
         (ats.stop_work.rationale ? ats.stop_work.rationale + " " : "") +
-        "Checklist corporativo (Formato Estrella) requiere verificación adicional antes de continuar.";
+        "Checklist corporativo requiere verificación adicional antes de continuar.";
     }
 
-    // critical_fails -> auto_triggers
     const cf = safeArrayStrings(mergedChecklist?.critical_fails);
     if (cf.length) {
       ats.stop_work.auto_triggers = mergeUnique(
@@ -1471,11 +1619,9 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
       );
     }
 
-    // ✅🔧 MUY IMPORTANTE: forzar presencia de estos campos (aunque vengan vacíos)
     ats.normative_refs = normalizeNormRefs(ats?.normative_refs ?? normativeRefs);
     if (!Array.isArray(ats.normative_refs)) ats.normative_refs = [];
 
-    // ✅ recommendations: normalizar based_on con clause=null siempre
     const allowed = new Set((normativeRefs || []).map((n) => n.standard));
 
     ats.recommendations = Array.isArray(ats?.recommendations) ? ats.recommendations : [];
@@ -1499,39 +1645,23 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
             clause: b.clause ? b.clause : null,
           }));
 
-        const finalVerification = based_on.length ? verification : "requires_verification";
-
         return {
           topic,
           recommendation,
           based_on,
-          verification: finalVerification,
+          verification: based_on.length ? verification : "requires_verification",
         };
       })
       .filter((r: any) => r.topic && r.recommendation)
       .slice(0, 10);
 
-    if (!Array.isArray(ats.recommendations)) ats.recommendations = [];
-
-    /* =========================
-       ✅ FIX COMPLETITUD: hazards/steps NO pueden quedar vacíos
-    ========================= */
     if ((ats.hazards?.length || 0) === 0) {
       ats.hazards = buildFallbackHazards({
         checklist: mergedChecklist,
         tasks,
         environment: ats.environment,
         autoTriggers: ats.stop_work?.auto_triggers || [],
-      });
-    }
-
-    if ((ats.steps?.length || 0) === 0) {
-      ats.steps = buildFallbackSteps({
-        meta: ats.meta,
-        hazards: ats.hazards,
-        controls: ats.controls,
-        tasks,
-        checklist: mergedChecklist,
+        taskDescription,
       });
     }
 
@@ -1543,8 +1673,20 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
           tasks,
           environment: ats.environment,
           autoTriggers: ats.stop_work?.auto_triggers || [],
+          taskDescription,
         })
       ).slice(0, 12);
+    }
+
+    if ((ats.steps?.length || 0) === 0) {
+      ats.steps = buildFallbackSteps({
+        meta: ats.meta,
+        hazards: ats.hazards,
+        controls: ats.controls,
+        tasks,
+        checklist: mergedChecklist,
+        taskDescription,
+      });
     }
 
     if ((ats.steps?.length || 0) < 4) {
@@ -1554,6 +1696,7 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
         controls: ats.controls,
         tasks,
         checklist: mergedChecklist,
+        taskDescription,
       });
     }
 
@@ -1568,6 +1711,9 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
   } catch (err: any) {
     const msg = String(err?.message || err);
     console.error("generate-ats ERROR:", err);
-    return NextResponse.json({ error: "Error generando ATS", details: msg }, { status: 500 });
+    return NextResponse.json(
+      { error: "Error generando ATS", details: msg },
+      { status: 500 }
+    );
   }
 }
