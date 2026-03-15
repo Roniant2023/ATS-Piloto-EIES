@@ -1,4 +1,3 @@
-// app/api/generate-ats/route.ts
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
@@ -8,15 +7,11 @@ const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 const ATS_MODEL = process.env.ATS_MODEL || "gpt-4.1-mini";
 
 /* =========================
-   Helpers
+Helpers
 ========================= */
 
 function pickString(v: any, fallback = "") {
   return typeof v === "string" ? v : fallback;
-}
-
-function pickArray(v: any) {
-  return Array.isArray(v) ? v : [];
 }
 
 function safeArrayStrings(v: any): string[] {
@@ -30,7 +25,7 @@ function mergeUnique(a: string[], b: string[]) {
 }
 
 /* =========================
-   Normativa
+Normativa
 ========================= */
 
 type NormRef = {
@@ -60,7 +55,7 @@ function normalizeNormRefs(v: any): NormRef[] {
 }
 
 /* =========================
-   Motor Normativo
+Motor Normativo
 ========================= */
 
 function buildNormativeEngine({
@@ -68,68 +63,87 @@ function buildNormativeEngine({
   normativeRefs,
   tasks,
 }: any) {
+
   const desc = String(taskDescription || "").toLowerCase();
 
   const analysis: any[] = [];
 
   for (const norm of normativeRefs) {
+
     const standard = norm.standard.toLowerCase();
 
-    /* ===== ASME B30 ===== */
+    /* ========= ASME B30 ========= */
 
     if (standard.includes("asme b30")) {
+
       if (tasks.lifting || desc.includes("izaje") || desc.includes("grua")) {
+
         analysis.push({
           standard: norm.standard,
           applies_to: "Operaciones de izaje con grúa",
           relevance:
-            "Control de maniobras de izaje, señalización, accesorios y condiciones meteorológicas",
+            "Control de maniobras de izaje, accesorios y zona de carga suspendida",
+
           required_controls: [
             "Inspección previa de eslingas, grilletes y accesorios",
-            "Definir zona de exclusión para la carga suspendida",
+            "Definir zona de exclusión bajo la carga suspendida",
             "Asignar señalero competente",
             "Verificar capacidad de carga del equipo",
-            "Evaluar condiciones meteorológicas antes del izaje",
+            "Evaluar condiciones meteorológicas antes del izaje"
           ],
+
           stop_work_conditions: [
             "Accesorios de izaje defectuosos",
             "Pérdida de control de la carga",
-            "Condiciones meteorológicas inseguras",
-          ],
+            "Condiciones meteorológicas inseguras"
+          ]
         });
+
       }
+
     }
 
-    /* ===== API RP 54 ===== */
+    /* ========= API RP 54 ========= */
 
     if (standard.includes("api rp 54")) {
+
       analysis.push({
+
         standard: norm.standard,
         applies_to: "Operaciones de perforación o well service",
+
         relevance:
-          "Control de equipos, energía peligrosa y seguridad en operaciones de pozo",
+          "Control de energía peligrosa y seguridad de equipos en operaciones de pozo",
+
         required_controls: [
-          "Control de energías peligrosas",
           "Inspección de equipos antes de operar",
-          "Comunicación entre operadores",
+          "Control de energías peligrosas",
+          "Comunicación efectiva entre operadores"
         ],
+
         stop_work_conditions: [
           "Equipos defectuosos",
-          "Condiciones inseguras en área de operación",
-        ],
+          "Condiciones inseguras en área de operación"
+        ]
+
       });
+
     }
+
   }
 
   return analysis;
+
 }
 
 /* =========================
-   ROUTE
+ROUTE
 ========================= */
 
 export async function POST(req: Request) {
+
   try {
+
     const body = await req.json();
 
     const tasks = {
@@ -159,20 +173,24 @@ export async function POST(req: Request) {
     };
 
     const prompt = `
-Eres un experto HSEQ.
+Eres un especialista HSEQ.
 
-Genera un ATS con:
+Genera un ATS (Análisis de Trabajo Seguro) profesional para operaciones industriales.
 
-- hazards
-- controls
-- steps
-- stop_work
-- recommendations
+El ATS debe incluir:
 
-Devuelve SOLO JSON.
+hazards
+controls
+steps
+stop_work
+recommendations
+
+Usa la información normativa incluida cuando sea aplicable.
+
+Devuelve SOLO JSON válido.
 `;
 
-    const inputPayload = {
+    const payload = {
       meta,
       task_description: taskDescription,
       tasks,
@@ -181,17 +199,21 @@ Devuelve SOLO JSON.
     };
 
     const response = await client.responses.create({
+
       model: ATS_MODEL,
+
       input: [
         {
           role: "user",
           content: [
             { type: "input_text", text: prompt },
-            { type: "input_text", text: JSON.stringify(inputPayload) },
+            { type: "input_text", text: JSON.stringify(payload) },
           ],
         },
       ],
+
       max_output_tokens: 2000,
+
     });
 
     const out = (response.output_text || "").trim();
@@ -199,12 +221,19 @@ Devuelve SOLO JSON.
     let ats: any;
 
     try {
+
       ats = JSON.parse(out);
+
     } catch {
+
       ats = {
         meta,
         hazards: [],
-        controls: { engineering: [], administrative: [], ppe: [] },
+        controls: {
+          engineering: [],
+          administrative: [],
+          ppe: [],
+        },
         steps: [],
         stop_work: {
           decision: "REVIEW_REQUIRED",
@@ -216,33 +245,38 @@ Devuelve SOLO JSON.
         normative_analysis: normativeAnalysis,
         recommendations: [],
       };
+
     }
 
-    /* ===== Integrar controles normativos ===== */
+    /* =========================
+    Integrar controles normativos
+    ========================= */
+
+    ats.controls = ats.controls || {
+      engineering: [],
+      administrative: [],
+      ppe: [],
+    };
+
+    ats.stop_work = ats.stop_work || {
+      decision: "CONTINUE",
+      auto_triggers: [],
+      criteria: [],
+      rationale: "",
+    };
 
     for (const rule of normativeAnalysis) {
-      ats.controls = ats.controls || {
-        engineering: [],
-        administrative: [],
-        ppe: [],
-      };
 
       ats.controls.administrative = mergeUnique(
         ats.controls.administrative,
-        rule.required_controls
+        safeArrayStrings(rule.required_controls)
       );
-
-      ats.stop_work = ats.stop_work || {
-        decision: "CONTINUE",
-        auto_triggers: [],
-        criteria: [],
-        rationale: "",
-      };
 
       ats.stop_work.auto_triggers = mergeUnique(
-        ats.stop_work.auto_triggers || [],
-        rule.stop_work_conditions
+        ats.stop_work.auto_triggers,
+        safeArrayStrings(rule.stop_work_conditions)
       );
+
     }
 
     ats.normative_analysis = normativeAnalysis;
@@ -250,6 +284,7 @@ Devuelve SOLO JSON.
     return NextResponse.json({ ats }, { status: 200 });
 
   } catch (err: any) {
+
     console.error("generate-ats ERROR:", err);
 
     return NextResponse.json(
@@ -259,5 +294,7 @@ Devuelve SOLO JSON.
       },
       { status: 500 }
     );
+
   }
+
 }
