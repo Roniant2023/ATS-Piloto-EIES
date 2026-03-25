@@ -47,9 +47,11 @@ function ensureProcedureRefShape(obj: any, fallbackName = "Procedimiento") {
         : "Archivo cargado por usuario",
     brief: {
       scope: typeof brief.scope === "string" ? brief.scope.trim() : "",
-      mandatory_permits: Array.isArray(brief.mandatory_permits)
-        ? brief.mandatory_permits.map(String).map((x) => x.trim()).filter(Boolean)
-        : [],
+     mandatory_permits: Array.isArray(brief.mandatory_permits)
+  ? brief.mandatory_permits
+      .map((v: any) => String(v).trim())
+      .filter((x: string) => x.length > 0)
+  : [],
       critical_controls: {
         engineering: Array.isArray(critical.engineering)
           ? critical.engineering.map(String).map((x) => x.trim()).filter(Boolean)
