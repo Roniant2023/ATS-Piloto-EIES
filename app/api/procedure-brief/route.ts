@@ -27,7 +27,7 @@ function clampExcerpts(excerpts: any) {
   }));
 }
 
-function ensureProcedureRefShape(obj: any) {
+function ensureProcedureRefShape(obj: any, fallbackName = "Procedimiento") {
   const p = obj && typeof obj === "object" ? obj : {};
   const brief = p.brief && typeof p.brief === "object" ? p.brief : {};
   const critical =
@@ -35,39 +35,69 @@ function ensureProcedureRefShape(obj: any) {
       ? brief.critical_controls
       : {};
 
-  return {
-    title: typeof p.title === "string" ? p.title : "Procedimiento",
-    code: typeof p.code === "string" ? p.code : "",
-    origin: typeof p.origin === "string" ? p.origin : "",
+  const shaped = {
+    title:
+      typeof p.title === "string" && p.title.trim()
+        ? p.title.trim()
+        : fallbackName,
+    code: typeof p.code === "string" ? p.code.trim() : "",
+    origin:
+      typeof p.origin === "string" && p.origin.trim()
+        ? p.origin.trim()
+        : "Archivo cargado por usuario",
     brief: {
-      scope: typeof brief.scope === "string" ? brief.scope : "",
+      scope: typeof brief.scope === "string" ? brief.scope.trim() : "",
       mandatory_permits: Array.isArray(brief.mandatory_permits)
-        ? brief.mandatory_permits.map(String)
+        ? brief.mandatory_permits.map(String).map((x) => x.trim()).filter(Boolean)
         : [],
       critical_controls: {
         engineering: Array.isArray(critical.engineering)
-          ? critical.engineering.map(String)
+          ? critical.engineering.map(String).map((x) => x.trim()).filter(Boolean)
           : [],
         administrative: Array.isArray(critical.administrative)
-          ? critical.administrative.map(String)
+          ? critical.administrative.map(String).map((x) => x.trim()).filter(Boolean)
           : [],
-        ppe: Array.isArray(critical.ppe) ? critical.ppe.map(String) : [],
+        ppe: Array.isArray(critical.ppe)
+          ? critical.ppe.map(String).map((x) => x.trim()).filter(Boolean)
+          : [],
       },
-      stop_work: Array.isArray(brief.stop_work) ? brief.stop_work.map(String) : [],
-      mandatory_steps: Array.isArray(brief.mandatory_steps)
-        ? brief.mandatory_steps.map(String)
+      stop_work: Array.isArray(brief.stop_work)
+        ? brief.stop_work.map(String).map((x) => x.trim()).filter(Boolean)
         : [],
-      restrictions: Array.isArray(brief.restrictions) ? brief.restrictions.map(String) : [],
+      mandatory_steps: Array.isArray(brief.mandatory_steps)
+        ? brief.mandatory_steps.map(String).map((x) => x.trim()).filter(Boolean)
+        : [],
+      restrictions: Array.isArray(brief.restrictions)
+        ? brief.restrictions.map(String).map((x) => x.trim()).filter(Boolean)
+        : [],
     },
     excerpts: clampExcerpts(p.excerpts),
     parseable: true,
     warnings: Array.isArray(p.warnings) ? p.warnings.map(String) : [],
   };
+
+  const hasUsefulContent =
+    !!shaped.brief.scope ||
+    shaped.brief.mandatory_permits.length > 0 ||
+    shaped.brief.critical_controls.engineering.length > 0 ||
+    shaped.brief.critical_controls.administrative.length > 0 ||
+    shaped.brief.critical_controls.ppe.length > 0 ||
+    shaped.brief.stop_work.length > 0 ||
+    shaped.brief.mandatory_steps.length > 0 ||
+    shaped.brief.restrictions.length > 0 ||
+    shaped.excerpts.length > 0;
+
+  return {
+    ...shaped,
+    parseable: !!hasUsefulContent,
+    warnings: hasUsefulContent
+      ? shaped.warnings
+      : [...shaped.warnings, "Contenido insuficiente para estructurar el procedimiento."],
+  };
 }
 
 /**
- * ✅ Structured Output schema
- * OJO: si additionalProperties=false, OpenAI exige required con TODAS las keys de properties.
+ * Structured Output schema
  */
 const PROCEDURE_SCHEMA = {
   type: "object",
@@ -142,19 +172,27 @@ export async function POST(req: Request) {
       purpose: "assistants",
     });
 
-    const prompt = `
+const prompt = `
 Eres HSEQ corporativo. Extrae un resumen estructurado del procedimiento.
 
 Reglas:
 - Máximo ${MAX_EXCERPTS} excerpts.
 - Cada excerpt <= ${MAX_EXCERPT_CHARS} caracteres.
+- Máximo 4 mandatory_permits.
+- Máximo 4 controles por categoría.
+- Máximo 4 stop_work.
+- Máximo 6 mandatory_steps.
+- Máximo 4 restrictions.
+- Usa frases breves y claras.
 - NO pegues el documento completo.
-- Devuelve SOLO JSON que cumpla el schema.
+- Si falta información, devuelve string vacío "" o array [].
+- NO omitas ninguna clave del schema, aunque esté vacía.
+- NO inventes información.
+- Devuelve SOLO JSON válido (sin texto adicional, sin markdown, sin explicaciones).
 `.trim();
-
     const resp = await openai.responses.create({
       model: BRIEF_MODEL,
-      max_output_tokens: 1400,
+      max_output_tokens: 2200,
       input: [
         {
           role: "user",
@@ -174,35 +212,60 @@ Reglas:
     });
 
     const out = (resp.output_text || "").trim();
-    let parsed: any;
-    try {
-      parsed = JSON.parse(out);
-    } catch {
-      // Si llegara a pasar (no debería), marcamos como no parseable pero sin romper.
-      return NextResponse.json(
-        {
-          procedure_ref: {
-            title: "Procedimiento (no parseable)",
-            code: "",
-            origin: "",
-            brief: {
-              scope: "No se pudo estructurar automáticamente.",
-              mandatory_permits: [],
-              critical_controls: { engineering: [], administrative: [], ppe: [] },
-              stop_work: [],
-              mandatory_steps: [],
-              restrictions: [],
-            },
-            excerpts: [],
-            parseable: false,
-            warnings: ["JSON inválido devuelto por el modelo."],
-          },
-        },
-        { status: 200 }
-      );
+
+    console.log("====================================");
+    console.log("PROCEDURE BRIEF RAW OUTPUT:");
+    console.log(out);
+    console.log("====================================");
+
+    if (!out.endsWith("}")) {
+      console.error("⚠️ PROCEDURE JSON INCOMPLETO DETECTADO");
+      console.error(out.slice(-500));
     }
 
-    const procedure_ref = ensureProcedureRefShape(parsed);
+    let parsed: any;
+
+    try {
+      parsed = JSON.parse(out);
+    } catch (err) {
+      console.error("❌ ERROR PARSEANDO PROCEDURE BRIEF:");
+      console.error(err);
+      console.error("❌ OUTPUT QUE FALLÓ:");
+      console.error(out);
+
+      try {
+        const fixed = out.substring(0, out.lastIndexOf("}") + 1);
+        parsed = JSON.parse(fixed);
+        console.warn("⚠️ PROCEDURE JSON RECUPERADO PARCIALMENTE");
+      } catch {
+        return NextResponse.json(
+          {
+            procedure_ref: {
+              title: f.name?.replace(/\.[^.]+$/, "") || "Procedimiento (no parseable)",
+              code: "",
+              origin: "Archivo cargado por usuario",
+              brief: {
+                scope: "No se pudo estructurar automáticamente.",
+                mandatory_permits: [],
+                critical_controls: { engineering: [], administrative: [], ppe: [] },
+                stop_work: [],
+                mandatory_steps: [],
+                restrictions: [],
+              },
+              excerpts: [],
+              parseable: false,
+              warnings: [
+                "JSON inválido o incompleto devuelto por el modelo.",
+                "Requiere revisión manual del procedimiento.",
+              ],
+            },
+          },
+          { status: 200 }
+        );
+      }
+    }
+
+    const procedure_ref = ensureProcedureRefShape(parsed, f.name || "Procedimiento");
     return NextResponse.json({ procedure_ref }, { status: 200 });
   } catch (err: any) {
     const msg = String(err?.message || err);
