@@ -19,6 +19,14 @@ function normalizeText(s: string) {
     .trim();
 }
 
+function cleanStringArray(arr: any): string[] {
+  return Array.isArray(arr)
+    ? arr
+        .map((v: any) => String(v).trim())
+        .filter((x: string) => x.length > 0)
+    : [];
+}
+
 function clampExcerpts(excerpts: any) {
   if (!Array.isArray(excerpts)) return [];
   return excerpts.slice(0, MAX_EXCERPTS).map((x: any, idx: number) => ({
@@ -47,35 +55,19 @@ function ensureProcedureRefShape(obj: any, fallbackName = "Procedimiento") {
         : "Archivo cargado por usuario",
     brief: {
       scope: typeof brief.scope === "string" ? brief.scope.trim() : "",
-     mandatory_permits: Array.isArray(brief.mandatory_permits)
-  ? brief.mandatory_permits
-      .map((v: any) => String(v).trim())
-      .filter((x: string) => x.length > 0)
-  : [],
+      mandatory_permits: cleanStringArray(brief.mandatory_permits),
       critical_controls: {
-        engineering: Array.isArray(critical.engineering)
-          ? critical.engineering.map(String).map((x) => x.trim()).filter(Boolean)
-          : [],
-        administrative: Array.isArray(critical.administrative)
-          ? critical.administrative.map(String).map((x) => x.trim()).filter(Boolean)
-          : [],
-        ppe: Array.isArray(critical.ppe)
-          ? critical.ppe.map(String).map((x) => x.trim()).filter(Boolean)
-          : [],
+        engineering: cleanStringArray(critical.engineering),
+        administrative: cleanStringArray(critical.administrative),
+        ppe: cleanStringArray(critical.ppe),
       },
-      stop_work: Array.isArray(brief.stop_work)
-        ? brief.stop_work.map(String).map((x) => x.trim()).filter(Boolean)
-        : [],
-      mandatory_steps: Array.isArray(brief.mandatory_steps)
-        ? brief.mandatory_steps.map(String).map((x) => x.trim()).filter(Boolean)
-        : [],
-      restrictions: Array.isArray(brief.restrictions)
-        ? brief.restrictions.map(String).map((x) => x.trim()).filter(Boolean)
-        : [],
+      stop_work: cleanStringArray(brief.stop_work),
+      mandatory_steps: cleanStringArray(brief.mandatory_steps),
+      restrictions: cleanStringArray(brief.restrictions),
     },
     excerpts: clampExcerpts(p.excerpts),
     parseable: true,
-    warnings: Array.isArray(p.warnings) ? p.warnings.map(String) : [],
+    warnings: cleanStringArray(p.warnings),
   };
 
   const hasUsefulContent =
@@ -174,7 +166,7 @@ export async function POST(req: Request) {
       purpose: "assistants",
     });
 
-const prompt = `
+    const prompt = `
 Eres HSEQ corporativo. Extrae un resumen estructurado del procedimiento.
 
 Reglas:
@@ -192,6 +184,7 @@ Reglas:
 - NO inventes información.
 - Devuelve SOLO JSON válido (sin texto adicional, sin markdown, sin explicaciones).
 `.trim();
+
     const resp = await openai.responses.create({
       model: BRIEF_MODEL,
       max_output_tokens: 2200,
