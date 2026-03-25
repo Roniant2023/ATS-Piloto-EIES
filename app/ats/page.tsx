@@ -696,12 +696,11 @@ export default function Page() {
   }, [atsResult, jobTitle, executionDateISO]);
 
   const handlePrintToPdf = useReactToPrint({
-    contentRef: printRef,
-    documentTitle: fileTitle,
-    removeAfterPrint: true,
-    pageStyle: `
-      @page { size: A4; margin: 10mm; }
-      @media print {
+  contentRef: printRef,
+  documentTitle: fileTitle,
+  pageStyle: `
+    @page { size: A4; margin: 10mm; }
+    @media print {
         html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         .no-print { display: none !important; }
         .print-only { display: block !important; }
