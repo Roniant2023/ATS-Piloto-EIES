@@ -1058,15 +1058,7 @@ export default function Page() {
         />
       </div>
 
-      <div className="no-print flex flex-wrap items-center gap-2">
-        <button
-          onClick={handleCopyATS}
-          disabled={!atsResult}
-          className="px-4 py-2 border rounded disabled:opacity-50"
-        >
-          Copiar ATS (JSON)
-        </button>
-      </div>
+      
 
       {(uiError || uiInfo) && (
         <div
