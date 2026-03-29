@@ -1,1137 +1,1256 @@
-"use client";
-
-import React, { useMemo, useRef, useState, useEffect } from "react";
-import { useReactToPrint } from "react-to-print";
-
-/* =========================
-   TIPOS
-========================= */
-type ProcedureRef = {
-  title?: string;
-  code?: string;
-  origin?: string;
-  parseable?: boolean;
-  [key: string]: any;
-};
-
-type ProcedureResult = {
-  ok: boolean;
-  fileName: string;
-  procedure?: ProcedureRef;
-  error?: string;
-  details?: string;
-};
-
-type Environment = {
-  timeOfDay?: string | null;
-  weather?: string | null;
-  temperatureC?: number | null;
-  humidityPct?: number | null;
-  wind?: string | null;
-  lighting?: string | null;
-  terrain?: string | null;
-  visibility?: string | null;
-};
-
-type ATSStopWork = {
-  decision: "STOP" | "CONTINUE" | "REVIEW_REQUIRED";
-  auto_triggers: string[];
-  criteria: string[];
-  rationale: string;
-};
-
-type ATSProcedureMini = { title: string; code: string; origin: string };
-
-type ATSProcedureInfluence = {
-  applied: ATSProcedureMini[];
-  not_parseable: ATSProcedureMini[];
-  derived_controls: Array<{
-    level: "engineering" | "administrative" | "ppe";
-    control: string;
-    source: ATSProcedureMini;
-  }>;
-};
-
-type ATSChecklistDecisionHint = "STOP" | "REVIEW_REQUIRED" | "CONTINUE";
-
-type ATSChecklistAction = {
-  priority: "critical" | "high" | "medium" | "low";
-  category: "administrative" | "engineering" | "ppe";
-  action: string;
-  evidence: string[];
-};
-
-type ATSChecklistActions = {
-  decision_hint: ATSChecklistDecisionHint;
-  missing: string[];
-  critical_fails: string[];
-  derived_controls: {
-    engineering: string[];
-    administrative: string[];
-    ppe: string[];
-  };
-  actions: ATSChecklistAction[];
-  snapshot: any;
-};
-
-type ATS = {
-  meta: {
-    title: string;
-    company: string;
-    location: string;
-    date: string;
-    shift: string;
-  };
-  environment: any;
-  hazards: string[];
-  controls: {
-    engineering: string[];
-    administrative: string[];
-    ppe: string[];
-  };
-  steps: Array<{ step: string; hazards: string[]; controls: string[] }>;
-  stop_work: ATSStopWork;
-  procedure_refs_used: ATSProcedureMini[];
-  procedure_influence: ATSProcedureInfluence;
-  checklist_actions?: ATSChecklistActions;
-};
-
-type LessonLearnedBrief = {
-  title: string;
-  code: string;
-  origin: string;
-  parseable: boolean;
-  brief: {
-    scope: string;
-    mandatory_permits: string[];
-    critical_controls: {
-      engineering: string[];
-      administrative: string[];
-      ppe: string[];
-    };
-    stop_work: string[];
-    mandatory_steps: string[];
-    restrictions: string[];
-  };
-};
-
-type LessonLearnedApiResponse = {
-  lesson: any;
-  lesson_learned_brief: LessonLearnedBrief;
-};
-
-/* =========================
-   UTILS
-========================= */
-function clsx(...parts: Array<string | false | null | undefined>) {
-  return parts.filter(Boolean).join(" ");
-}
-
-function formatDateEsCOFromISO(iso: string): string {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-").map(Number);
-  if (!y || !m || !d) return "";
-  return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
-}
-
-function cleanString(v: any): string | null {
-  if (v === null || v === undefined) return null;
-  const s = String(v).trim();
-  return s.length ? s : null;
-}
-
-function cleanNumber(v: any): number | null {
-  if (v === null || v === undefined) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-function sanitizeEnvironment(env: Environment): Environment {
-  return {
-    timeOfDay: cleanString(env.timeOfDay),
-    weather: cleanString(env.weather),
-    wind: cleanString(env.wind),
-    lighting: cleanString(env.lighting),
-    terrain: cleanString(env.terrain),
-    visibility: cleanString(env.visibility),
-    temperatureC: cleanNumber(env.temperatureC),
-    humidityPct: cleanNumber(env.humidityPct),
-  };
-}
-
-function isPdfOrDocx(file: File) {
-  const name = file.name.toLowerCase();
-  return name.endsWith(".pdf") || name.endsWith(".docx");
-}
-
-function fileKey(f: File) {
-  return `${f.name}__${f.size}`;
-}
-
-function safeJsonParse<T = any>(
-  text: string
-): { ok: true; value: T } | { ok: false; error: string } {
-  try {
-    return { ok: true, value: JSON.parse(text) };
-  } catch (e: any) {
-    return { ok: false, error: String(e?.message || e) };
-  }
-}
-
-function badgeForDecision(decision?: string) {
-  if (decision === "STOP") return { label: "STOP WORK", cls: "bg-red-600 text-white" };
-  if (decision === "REVIEW_REQUIRED") {
-    return { label: "REVISIÓN REQUERIDA", cls: "bg-amber-500 text-black" };
-  }
-  return { label: "CONTINUAR", cls: "bg-green-600 text-white" };
-}
-
-function sectionColorForDecision(decision?: string) {
-  if (decision === "STOP") return "border-red-300 bg-red-50";
-  if (decision === "REVIEW_REQUIRED") return "border-amber-300 bg-amber-50";
-  return "border-green-300 bg-green-50";
-}
-
-function miniLabel(p: { title?: string; code?: string; origin?: string }) {
-  const t = (p.title || "Procedimiento").trim();
-  const c = (p.code || "").trim();
-  const o = (p.origin || "").trim();
-  return `${t}${c ? ` (${c})` : ""}${o ? ` — ${o}` : ""}`;
-}
-
-function uniqueNonEmpty(arr: any): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const src = Array.isArray(arr) ? arr : [];
-  for (const x of src) {
-    const s = String(x ?? "").trim();
-    if (!s) continue;
-    if (seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
-  }
-  return out;
-}
-
-function toggleInArray(list: string[], value: string) {
-  const exists = list.includes(value);
-  return exists ? list.filter((x) => x !== value) : [...list, value];
-}
-
-/* =========================
-   HELPERS CHECKLIST
-========================= */
-function badgeForChecklistHint(decision?: string) {
-  if (decision === "STOP") return { label: "STOP WORK", cls: "bg-red-600 text-white" };
-  if (decision === "REVIEW_REQUIRED") {
-    return { label: "REVISIÓN REQUERIDA", cls: "bg-amber-500 text-black" };
-  }
-  return { label: "CONTINUAR", cls: "bg-green-600 text-white" };
-}
-
-function sortChecklistActions(list: ATSChecklistAction[]) {
-  const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-  return [...(list || [])].sort((a, b) => (order[a.priority] ?? 99) - (order[b.priority] ?? 99));
-}
-
-function pillForPriority(p: ATSChecklistAction["priority"]) {
-  if (p === "critical") return { label: "CRÍTICO", cls: "bg-red-600 text-white border-red-700" };
-  if (p === "high") return { label: "ALTO", cls: "bg-orange-500 text-black border-orange-600" };
-  if (p === "medium") return { label: "MEDIO", cls: "bg-amber-300 text-black border-amber-400" };
-  return { label: "BAJO", cls: "bg-slate-200 text-black border-slate-300" };
-}
-
-function pillForCategory(c: ATSChecklistAction["category"]) {
-  if (c === "engineering") {
-    return { label: "Ingeniería", cls: "bg-indigo-50 text-indigo-900 border-indigo-200" };
-  }
-  if (c === "administrative") {
-    return { label: "Administrativo", cls: "bg-blue-50 text-blue-900 border-blue-200" };
-  }
-  return { label: "EPP", cls: "bg-emerald-50 text-emerald-900 border-emerald-200" };
-}
-
-function pillForDecisionHint(h?: string) {
-  if (h === "STOP") return { label: "STOP", cls: "bg-red-600 text-white" };
-  if (h === "REVIEW_REQUIRED") return { label: "REVISAR", cls: "bg-amber-500 text-black" };
-  return { label: "OK", cls: "bg-green-600 text-white" };
-}
-
-/* =========================
-   COMPONENTE CHECKLIST
-========================= */
-function ChecklistSection({ checklist }: { checklist: ATSChecklistActions }) {
-  const hint = checklist?.decision_hint;
-  const hintBadge = badgeForChecklistHint(hint);
-  const hintPill = pillForDecisionHint(hint);
-
-  const missing = uniqueNonEmpty(checklist?.missing);
-  const criticalFails = uniqueNonEmpty(checklist?.critical_fails);
-
-  const derivedEng = uniqueNonEmpty(checklist?.derived_controls?.engineering);
-  const derivedAdm = uniqueNonEmpty(checklist?.derived_controls?.administrative);
-  const derivedPpe = uniqueNonEmpty(checklist?.derived_controls?.ppe);
-
-  const actionsSorted = sortChecklistActions(
-    Array.isArray(checklist?.actions) ? checklist.actions : []
-  );
-
-  return (
-    <section className="border rounded-xl p-4 md:p-5 bg-white shadow-sm space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-xs text-neutral-500">Checklist corporativo (Formato Estrella)</div>
-          <div className="text-lg font-semibold">Acciones y verificación</div>
-          <div className="text-sm text-neutral-700 mt-1">
-            Estado:{" "}
-            <span
-              className={clsx(
-                "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold",
-                hintPill.cls
-              )}
-            >
-              {hintPill.label}
-            </span>
-          </div>
-        </div>
-
-        <span className={clsx("px-3 py-1 rounded-full text-sm font-semibold", hintBadge.cls)}>
-          {hintBadge.label}
-        </span>
-      </div>
-
-      {(criticalFails.length > 0 || missing.length > 0) && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div
-            className={clsx(
-              "border rounded-lg p-3",
-              criticalFails.length ? "border-red-200 bg-red-50" : "border-neutral-200 bg-neutral-50"
-            )}
-          >
-            <div className="font-semibold text-sm flex items-center justify-between">
-              <span>Fallos críticos</span>
-              <span className="text-xs text-neutral-600">{criticalFails.length}</span>
-            </div>
-            {criticalFails.length === 0 ? (
-              <div className="text-sm text-neutral-600 mt-2">—</div>
-            ) : (
-              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                {criticalFails.map((x, i) => (
-                  <li key={i} className="text-red-900">
-                    {x}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div
-            className={clsx(
-              "border rounded-lg p-3",
-              missing.length ? "border-amber-200 bg-amber-50" : "border-neutral-200 bg-neutral-50"
-            )}
-          >
-            <div className="font-semibold text-sm flex items-center justify-between">
-              <span>Faltantes</span>
-              <span className="text-xs text-neutral-600">{missing.length}</span>
-            </div>
-            {missing.length === 0 ? (
-              <div className="text-sm text-neutral-600 mt-2">—</div>
-            ) : (
-              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                {missing.map((x, i) => (
-                  <li key={i} className="text-amber-900">
-                    {x}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div className="border rounded-lg p-3 bg-neutral-50">
-        <div className="font-semibold text-sm">Controles derivados del checklist</div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-          <div className="border rounded-lg p-3 bg-white">
-            <div className="text-sm font-semibold">Ingeniería</div>
-            {derivedEng.length ? (
-              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                {derivedEng.map((c, i) => (
-                  <li key={i}>{c}</li>
-                ))}
-              </ul>
-            ) : (
-              <div className="text-sm text-neutral-600 mt-2">—</div>
-            )}
-          </div>
-          <div className="border rounded-lg p-3 bg-white">
-            <div className="text-sm font-semibold">Administrativos</div>
-            {derivedAdm.length ? (
-              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                {derivedAdm.map((c, i) => (
-                  <li key={i}>{c}</li>
-                ))}
-              </ul>
-            ) : (
-              <div className="text-sm text-neutral-600 mt-2">—</div>
-            )}
-          </div>
-          <div className="border rounded-lg p-3 bg-white">
-            <div className="text-sm font-semibold">EPP</div>
-            {derivedPpe.length ? (
-              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                {derivedPpe.map((c, i) => (
-                  <li key={i}>{c}</li>
-                ))}
-              </ul>
-            ) : (
-              <div className="text-sm text-neutral-600 mt-2">—</div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="border rounded-lg p-3 bg-white">
-        <div className="flex items-center justify-between">
-          <div className="font-semibold text-sm">Acciones recomendadas</div>
-          <div className="text-xs text-neutral-600">{actionsSorted.length} acción(es)</div>
-        </div>
-
-        {actionsSorted.length === 0 ? (
-          <div className="text-sm text-neutral-600 mt-2">No hay acciones adicionales.</div>
-        ) : (
-          <ul className="mt-3 space-y-2">
-            {actionsSorted.map((a, i) => {
-              const pr = pillForPriority(a.priority);
-              const cat = pillForCategory(a.category);
-
-              return (
-                <li key={i} className="border rounded-lg p-3 bg-neutral-50">
-                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <span
-                      className={clsx(
-                        "text-[11px] font-semibold px-2 py-0.5 rounded-full border",
-                        pr.cls
-                      )}
-                    >
-                      {pr.label}
-                    </span>
-                    <span
-                      className={clsx(
-                        "text-[11px] font-semibold px-2 py-0.5 rounded-full border",
-                        cat.cls
-                      )}
-                    >
-                      {cat.label}
-                    </span>
-                  </div>
-
-                  <div className="text-sm text-neutral-900">{a.action}</div>
-
-                  {Array.isArray(a.evidence) && a.evidence.length > 0 && (
-                    <div className="mt-2">
-                      <div className="text-xs font-semibold text-neutral-600">Evidencia</div>
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        {uniqueNonEmpty(a.evidence).map((e, idx) => (
-                          <span
-                            key={idx}
-                            className="text-[11px] px-2 py-0.5 rounded-full border bg-white text-neutral-800"
-                          >
-                            {e}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
-      <div className="text-xs text-neutral-500">
-        Nota: estas acciones se derivan del Formato Estrella y reglas determinísticas; la IA solo
-        afina redacción y verificabilidad.
-      </div>
-    </section>
-  );
-}
-
-/* =========================
-   CONSTANTES FORMATO ESTRELLA
-========================= */
-const PELIGROS_TIPOS = [
-  "Físico",
-  "Químico",
-  "Biológico",
-  "Mecánico",
-  "Tecnológicos",
-  "Trabajo en alturas",
-  "Espacio Confinado",
-  "Locativo",
-  "Psicosocial",
-  "Biomecánico",
-  "Eléctrico",
-  "Objetos con potencial de caída",
-  "Otros",
-] as const;
-
-const PELIGROS_ENTORNO = [
-  "Instalaciones Aledañas",
-  "Operaciones Simultáneas",
-  "Condiciones del terreno",
-  "Clima",
-  "Otros",
-] as const;
-
-const EMERGENCIAS = [
-  "Incendio / Explosión",
-  "Descontrol de Pozos",
-  "Accidente vial",
-  "Afectación ambiental",
-  "Emergencia Médica",
-  "Orden Público",
-  "Desastre natural",
-  "Gas Sulfhídrico",
-] as const;
-
-const EQUIPO_SEGURIDAD = [
-  "Casco",
-  "Guantes",
-  "Mascara facial",
-  "Extintores / Matafuegos",
-  "Botas de seguridad",
-  "Protección Respiratoria",
-  "Antiparras/ oxicorte",
-  "Lockout/Layout/ EMN",
-  "Gafas de Seguridad",
-  "Arnés de Seguridad",
-  "Barreras",
-  "Kit herramientas para alturas",
-  "Protección Auditiva",
-  "Medición de gases",
-  "Señalización/Conos/Limitación de Área",
-  "Otros",
-] as const;
-
-const ACUERDOS_DE_VIDA = [
-  "1_Detención de tareas",
-  "2_Aislamiento de energía, bloqueo y etiquetado",
-  "3_Espacios confinados",
-  "4_Conducción segura",
-  "5_Trabajos en caliente",
-  "6_Línea de peligro",
-  "7_Izaje",
-  "8_Permiso de trabajo",
-  "9_Trabajo en altura",
-  "10_Salud pública",
-] as const;
-
-/* =========================
-   COMPONENT
-========================= */
-export default function Page() {
-  const [jobTitle, setJobTitle] = useState("");
-  const [company, setCompany] = useState("");
-  const [location, setLocation] = useState("");
-  const [dateISO, setDateISO] = useState("");
-  const [shift, setShift] = useState("");
-  const [activityDescription, setActivityDescription] = useState("");
-  const [normReference, setNormReference] = useState("");
-  const companyLogoSrc = "/logo-eies.png";
-
-  const [environment, setEnvironment] = useState<Environment>({
-    timeOfDay: null,
-    weather: null,
-    temperatureC: null,
-    humidityPct: null,
-    wind: null,
-    lighting: null,
-    terrain: null,
-    visibility: null,
-  });
-
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [procedureRefs, setProcedureRefs] = useState<ProcedureRef[]>([]);
-  const [procedureResults, setProcedureResults] = useState<ProcedureResult[]>([]);
-  const [uploading, setUploading] = useState(false);
-
-  const [generatingATS, setGeneratingATS] = useState(false);
-  const [atsResult, setAtsResult] = useState<ATS | any>(null);
-
-  const [uiError, setUiError] = useState<string | null>(null);
-  const [uiInfo, setUiInfo] = useState<string | null>(null);
-
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  const [openSteps, setOpenSteps] = useState<Record<number, boolean>>({});
-  function toggleStep(i: number) {
-    setOpenSteps((prev) => ({ ...prev, [i]: !prev[i] }));
-  }
-
-  const [atsNumber, setAtsNumber] = useState("");
-  const [permitNumber, setPermitNumber] = useState("");
-  const [elaborationDateISO, setElaborationDateISO] = useState("");
-  const [executionDateISO, setExecutionDateISO] = useState("");
-  const [formatVersion, setFormatVersion] = useState("");
-  const [procedureCodeRelated, setProcedureCodeRelated] = useState("");
-  const [workFront, setWorkFront] = useState("");
-
-  const [incidentsReference, setIncidentsReference] = useState<"Si" | "No" | "">("");
-  const [otherCompanies, setOtherCompanies] = useState<"Si" | "No" | "">("");
-
-  const [dangerTypes, setDangerTypes] = useState<string[]>([]);
-  const [dangerTypesOther, setDangerTypesOther] = useState("");
-
-  const [environmentDangers, setEnvironmentDangers] = useState<string[]>([]);
-  const [environmentDangersOther, setEnvironmentDangersOther] = useState("");
-
-  const [emergencies, setEmergencies] = useState<string[]>([]);
-
-  const [safetyEquipment, setSafetyEquipment] = useState<string[]>([]);
-  const [safetyEquipmentOther, setSafetyEquipmentOther] = useState("");
-
-  const [lifeSavingRules, setLifeSavingRules] = useState<string[]>([]);
-
-  const [executants, setExecutants] = useState<Array<{ name: string; signature: string }>>([
-    { name: "", signature: "" },
-    { name: "", signature: "" },
-    { name: "", signature: "" },
-  ]);
-
-  const [supervisorName, setSupervisorName] = useState("");
-  const [supervisorRole, setSupervisorRole] = useState("");
-  const [supervisorSignature, setSupervisorSignature] = useState("");
-
-  const [checkStagesClarity, setCheckStagesClarity] = useState<"SI" | "NO" | "N.A." | "">("");
-  const [checkHazardsControlled, setCheckHazardsControlled] = useState<"SI" | "NO" | "N.A." | "">("");
-  const [checkIsolationConfirmed, setCheckIsolationConfirmed] = useState<"SI" | "NO" | "N.A." | "">("");
-  const [checkCommsAgreed, setCheckCommsAgreed] = useState<"SI" | "NO" | "N.A." | "">("");
-  const [checkToolsOk, setCheckToolsOk] = useState<"SI" | "NO" | "N.A." | "">("");
-
-  const [approverName, setApproverName] = useState("");
-  const [approverSignature, setApproverSignature] = useState("");
-
-  const lessonInputRef = useRef<HTMLInputElement | null>(null);
-  const [lessonFile, setLessonFile] = useState<File | null>(null);
-  const [lessonUploading, setLessonUploading] = useState(false);
-  const [lessonResult, setLessonResult] = useState<LessonLearnedApiResponse | null>(null);
-
-  function openLessonPicker() {
-    lessonInputRef.current?.click();
-  }
-
-  function clearLessonLearned() {
-    setLessonFile(null);
-    setLessonResult(null);
-  }
-
-  async function uploadLessonLearned(file: File) {
-    setUiError(null);
-    setUiInfo(null);
-
-    if (!isPdfOrDocx(file)) {
-      setUiError("La lección aprendida debe ser PDF o DOCX.");
-      return;
-    }
-
-    setLessonUploading(true);
-    setLessonResult(null);
-
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const res = await fetch("/api/lesson-learned-brief", {
-        method: "POST",
-        body: formData,
-      });
-
-      const text = await res.text();
-      if (!res.ok) {
-        setUiError(`Error en /api/lesson-learned-brief (HTTP ${res.status}): ${text}`);
-        return;
-      }
-
-      const parsed = safeJsonParse<LessonLearnedApiResponse>(text);
-      if (!parsed.ok) {
-        setUiError(`Respuesta lección aprendida no JSON: ${parsed.error}`);
-        return;
-      }
-
-      if (!parsed.value?.lesson_learned_brief) {
-        setUiError("Respuesta inválida: no llegó lesson_learned_brief.");
-        return;
-      }
-
-      setLessonResult(parsed.value);
-      setUiInfo("✅ Lección aprendida procesada y lista para el ATS.");
-    } catch (err: any) {
-      setUiError(`Excepción cargando lección aprendida: ${String(err?.message || err)}`);
-    } finally {
-      setLessonUploading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (incidentsReference !== "Si") {
-      clearLessonLearned();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incidentsReference]);
-
-  const printRef = useRef<HTMLDivElement>(null);
-
-  const fileTitle = useMemo(() => {
-    const t = String(atsResult?.meta?.title || jobTitle || "Trabajo")
-      .trim()
-      .replace(/\s+/g, "_");
-    const d =
-      String(atsResult?.meta?.date || formatDateEsCOFromISO(executionDateISO) || "")
-        .trim()
-        .replace(/\//g, "-") || "";
-    return `ATS_${t}${d ? `_${d}` : ""}`;
-  }, [atsResult, jobTitle, executionDateISO]);
-
-  const handlePrintToPdf = useReactToPrint({
-  contentRef: printRef,
-  documentTitle: fileTitle,
-  pageStyle: `
-    @page { size: A4; margin: 10mm; }
-    @media print {
-        html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        .no-print { display: none !important; }
-        .print-only { display: block !important; }
-      }
-    `,
-    onPrintError: (_location, error) => {
-      setUiError(`Error al imprimir: ${String((error as any)?.message || error)}`);
-    },
-  });
-
-  async function handleCopyATS() {
-    try {
-      if (!atsResult) return;
-      await navigator.clipboard.writeText(JSON.stringify(atsResult, null, 2));
-      setUiInfo("✅ ATS copiado al portapapeles.");
-      setUiError(null);
-    } catch (e: any) {
-      setUiError(`No se pudo copiar: ${String(e?.message || e)}`);
-    }
-  }
-
-  function openFilePicker() {
-    fileInputRef.current?.click();
-  }
-
-  function addFiles(files: File[]) {
-    const allowed = files.filter(isPdfOrDocx);
-    if (allowed.length === 0) {
-      setUiError("Solo se aceptan archivos PDF o DOCX.");
-      return;
-    }
-
-    setSelectedFiles((prev) => {
-      const existing = new Set(prev.map(fileKey));
-      const merged = [...prev];
-      for (const f of allowed) {
-        if (!existing.has(fileKey(f))) merged.push(f);
-      }
-      return merged;
-    });
-
-    setUiError(null);
-    setUiInfo(`${allowed.length} archivo(s) agregado(s).`);
-  }
-
-  function removeFile(idx: number) {
-    setSelectedFiles((prev) => {
-      const next = [...prev];
-      next.splice(idx, 1);
-      return next;
-    });
-  }
-
-  function clearAllFiles() {
-    setSelectedFiles([]);
-    setProcedureRefs([]);
-    setProcedureResults([]);
-    setAtsResult(null);
-    setOpenSteps({});
-    setUiInfo("Archivos limpiados.");
-    setUiError(null);
-  }
-
-  async function uploadSingleProcedure(file: File): Promise<ProcedureResult> {
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const res = await fetch("/api/procedure-brief", {
-        method: "POST",
-        body: formData,
-      });
-
-      const text = await res.text();
-      if (!res.ok) {
-        return {
-          ok: false,
-          fileName: file.name,
-          error: "Error en /api/procedure-brief",
-          details: `HTTP ${res.status}: ${text}`,
-        };
-      }
-
-      const parsed = safeJsonParse<any>(text);
-      if (!parsed.ok) {
-        return {
-          ok: false,
-          fileName: file.name,
-          error: "Respuesta no es JSON",
-          details: parsed.error,
-        };
-      }
-
-      const proc = parsed.value?.procedure_ref;
-      if (!proc || typeof proc !== "object") {
-        return {
-          ok: false,
-          fileName: file.name,
-          error: "Respuesta inválida",
-          details: "No llegó procedure_ref",
-        };
-      }
-
-      return { ok: true, fileName: file.name, procedure: proc };
-    } catch (err: any) {
-      return {
-        ok: false,
-        fileName: file.name,
-        error: "Excepción subiendo procedimiento",
-        details: String(err?.message || err),
-      };
-    }
-  }
-
-  async function handleUploadProcedures() {
-    setUiError(null);
-    setUiInfo(null);
-
-    if (!selectedFiles.length) {
-      setUiError("Selecciona al menos 1 archivo PDF o DOCX.");
-      return;
-    }
-
-    setUploading(true);
-    setProcedureResults([]);
-    setProcedureRefs([]);
-    setAtsResult(null);
-    setOpenSteps({});
-
-    try {
-      const results: ProcedureResult[] = [];
-      const procs: ProcedureRef[] = [];
-
-      for (const file of selectedFiles) {
-        const r = await uploadSingleProcedure(file);
-        results.push(r);
-        if (r.ok && r.procedure) procs.push(r.procedure);
-
-        setProcedureResults([...results]);
-        setProcedureRefs([...procs]);
-      }
-
-      const okCount = procs.length;
-      const failCount = results.filter((r) => !r.ok).length;
-
-      if (okCount === 0) {
-        setUiError("Se procesaron archivos, pero no se extrajo ningún documento técnico válido.");
-      } else {
-        setUiInfo(`Documentos técnicos listos: ${okCount}. Fallidos: ${failCount}.`);
-      }
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  const missingReasons = useMemo(() => {
-    const reasons: string[] = [];
-
-    if (!jobTitle.trim()) reasons.push("Falta Actividad/Trabajo.");
-    if (!company.trim()) reasons.push("Falta Empresa.");
-    if (!location.trim()) reasons.push("Falta Ubicación.");
-    if (!dateISO) reasons.push("Falta Fecha (meta).");
-    if (!shift.trim()) reasons.push("Falta Turno/Jornada.");
-
-    if (selectedFiles.length === 0) reasons.push("No has seleccionado documentos técnicos.");
-    if (procedureRefs.length === 0) reasons.push("No has procesado documentos técnicos (procedimientos/FDS).");
-
-    if (!executionDateISO) reasons.push("Falta Fecha de ejecución (Formato Estrella).");
-    if (!elaborationDateISO) reasons.push("Falta Fecha de elaboración (Formato Estrella).");
-
-    if (incidentsReference === "Si") {
-      if (!lessonResult?.lesson_learned_brief) {
-        reasons.push("Incidentes = Sí → Debes cargar y procesar una Lección aprendida (PDF/DOCX).");
-      }
-      if (lessonUploading) reasons.push("Espera: lección aprendida en procesamiento.");
-    }
-
-    if (uploading) reasons.push("Espera: documentos técnicos en procesamiento.");
-    if (generatingATS) reasons.push("Espera: ATS generándose.");
-
-    return reasons;
-  }, [
-    jobTitle,
-    company,
-    location,
-    dateISO,
-    shift,
-    selectedFiles.length,
-    procedureRefs.length,
-    uploading,
-    generatingATS,
-    executionDateISO,
-    elaborationDateISO,
-    incidentsReference,
-    lessonResult,
-    lessonUploading,
-  ]);
-
-  const canGenerateATS = useMemo(() => missingReasons.length === 0, [missingReasons]);
-
-  async function handleGenerateATS() {
-    setUiError(null);
-    setUiInfo(null);
-
-    if (!canGenerateATS) {
-      setUiError("No se puede generar ATS aún. Revisa los faltantes.");
-      return;
-    }
-
-    setGeneratingATS(true);
-    setAtsResult(null);
-    setOpenSteps({});
-
-    try {
-      const envSanitized = sanitizeEnvironment(environment);
-
-      const payload: any = {
-        jobTitle: jobTitle.trim(),
-        activity_description: activityDescription.trim(),
-        norm_reference: normReference.trim(),
-        company: company.trim(),
-        location: location.trim(),
-        date: formatDateEsCOFromISO(dateISO),
-        shift: shift.trim(),
-        environment: envSanitized,
-        procedure_refs: procedureRefs,
-        estrella_format: {
-          atsNumber: atsNumber.trim(),
-          permitNumber: permitNumber.trim(),
-          elaborationDate: formatDateEsCOFromISO(elaborationDateISO),
-          executionDate: formatDateEsCOFromISO(executionDateISO),
-          version: formatVersion.trim(),
-          procedureCodeRelated: procedureCodeRelated.trim(),
-          workFront: workFront.trim(),
-          incidentsReference,
-          otherCompanies,
-          dangerTypes,
-          dangerTypesOther: dangerTypesOther.trim(),
-          environmentDangers,
-          environmentDangersOther: environmentDangersOther.trim(),
-          emergencies,
-          safetyEquipment,
-          safetyEquipmentOther: safetyEquipmentOther.trim(),
-          lifeSavingRules,
-          authorizations: {
-            executants,
-            supervisor: {
-              name: supervisorName.trim(),
-              role: supervisorRole.trim(),
-              signature: supervisorSignature.trim(),
-              checks: {
-                stagesClarity: checkStagesClarity,
-                hazardsControlled: checkHazardsControlled,
-                isolationConfirmed: checkIsolationConfirmed,
-                commsAgreed: checkCommsAgreed,
-                toolsOk: checkToolsOk,
-              },
-            },
-            approver: {
-              name: approverName.trim(),
-              signature: approverSignature.trim(),
-            },
-          },
-        },
-      };
-
-      if (incidentsReference === "Si" && lessonResult?.lesson_learned_brief) {
-        payload.lesson_learned_brief = lessonResult.lesson_learned_brief;
-      }
-
-      console.log("ATS PAYLOAD:");
-      console.log(payload);
-
-      const res = await fetch("/api/generate-ats", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const text = await res.text();
-
-      if (!res.ok) {
-        setUiError(`Error generando ATS (HTTP ${res.status}): ${text}`);
-        return;
-      }
-
-      const parsed = safeJsonParse<any>(text);
-      if (!parsed.ok) {
-        setUiError(`Respuesta no JSON: ${parsed.error}`);
-        return;
-      }
-
-      const ats = parsed.value?.ats ?? parsed.value;
-      setAtsResult(ats);
-      setUiInfo("✅ ATS generado correctamente.");
-    } catch (err: any) {
-      setUiError(`Excepción generando ATS: ${String(err?.message || err)}`);
-    } finally {
-      setGeneratingATS(false);
-    }
-  }
-
-  const decision: string | undefined = atsResult?.stop_work?.decision;
-  const decisionBadge = badgeForDecision(decision);
-  const decisionSectionCls = sectionColorForDecision(decision);
-
-  const appliedProcedures: ATSProcedureMini[] =
-    atsResult?.procedure_influence?.applied ?? atsResult?.procedure_refs_used ?? [];
-
-  const notParseableProcedures: ATSProcedureMini[] =
-    atsResult?.procedure_influence?.not_parseable ?? [];
-
-  const hazardsList = uniqueNonEmpty(atsResult?.hazards);
-  const ctrlEng = uniqueNonEmpty(atsResult?.controls?.engineering);
-  const ctrlAdm = uniqueNonEmpty(atsResult?.controls?.administrative);
-  const ctrlPpe = uniqueNonEmpty(atsResult?.controls?.ppe);
-  const stepsList: ATS["steps"] = Array.isArray(atsResult?.steps) ? atsResult.steps : [];
-
-  const execDatePrint = formatDateEsCOFromISO(executionDateISO);
-  const elabDatePrint = formatDateEsCOFromISO(elaborationDateISO);
-
-  const checklist: ATSChecklistActions | null =
-    (atsResult?.checklist_actions as ATSChecklistActions) ?? null;
-
-  const box = (checked: boolean) => (checked ? "X" : " ");
-  const boxByVal = (val: string, target: "SI" | "NO" | "N.A.") => box(val === target);
-
-  const topHazards = hazardsList.slice(0, 8);
-  const topControls = uniqueNonEmpty([...ctrlEng, ...ctrlAdm, ...ctrlPpe]).slice(0, 10);
-  const topSteps = stepsList.slice(0, 6);
-
-  const supervisionChecklistRows = [
-    "ATS socializado con todo el equipo (charla preturno realizada).",
-    "Roles y responsabilidades definidos (líder, señalero, vigía, etc.).",
-    "Área demarcada y control de accesos implementado.",
-    "Permisos requeridos verificados y vigentes (si aplica).",
-    "Aislamiento de energías (LOTO/EMN) verificado si aplica.",
-    "EPP correcto disponible y en buen estado.",
-    "Herramientas/equipos inspeccionados y aptos para uso.",
-    "Plan de emergencias y comunicación verificados (rutas, puntos, radios/teléfono).",
-  ];
-
-  return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
-      <div className="no-print flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-semibold">ATS Inteligente</h1>
-          <div className="text-sm text-neutral-600">Análisis de Trabajo Seguro</div>
-        </div>
-
-        <img
-          src={companyLogoSrc}
-          alt="Logo compañía"
-          className="h-20 w-auto object-contain"
-        />
-      </div>
-
-      
-
-      {(uiError || uiInfo) && (
-        <div
-          className={[
-            "border rounded p-3 text-sm",
-            uiError
-              ? "bg-red-50 border-red-200 text-red-800"
-              : "bg-green-50 border-green-200 text-green-800",
-          ].join(" ")}
-        >
-          {uiError ?? uiInfo}
-        </div>
-      )}
-
-      <section className="no-print border rounded p-4 space-y-4">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <div className="text-xs text-neutral-600">Gestión de HSSEQ</div>
-            <div className="text-lg font-semibold">Análisis de Trabajo Seguro</div>
-            <div className="text-xs text-neutral-600">
-              Formato: <b>02-01-102-F001</b> · Revisión: <b>07</b> · Emisión: <b>04/09/2024</b>
-            </div>
-          </div>
-          <div className="text-xs text-neutral-600">
-            Página: <b>1 de 1</b>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+"use client";  
+  
+import React, { useMemo, useRef, useState, useEffect } from "react";  
+import { useReactToPrint } from "react-to-print";  
+  
+/* =========================  
+   TIPOS  
+========================= */  
+type ProcedureRef = {  
+  title?: string;  
+  code?: string;  
+  origin?: string;  
+  parseable?: boolean;  
+  [key: string]: any;  
+};  
+  
+type ProcedureResult = {  
+  ok: boolean;  
+  fileName: string;  
+  procedure?: ProcedureRef;  
+  error?: string;  
+  details?: string;  
+};  
+  
+type Environment = {  
+  timeOfDay?: string | null;  
+  weather?: string | null;  
+  temperatureC?: number | null;  
+  humidityPct?: number | null;  
+  wind?: string | null;  
+  lighting?: string | null;  
+  terrain?: string | null;  
+  visibility?: string | null;  
+};  
+  
+type ATSStopWork = {  
+  decision: "STOP" | "CONTINUE" | "REVIEW_REQUIRED";  
+  auto_triggers: string[];  
+  criteria: string[];  
+  rationale: string;  
+};  
+  
+type ATSProcedureMini = { title: string; code: string; origin: string };  
+  
+type ATSProcedureInfluence = {  
+  applied: ATSProcedureMini[];  
+  not_parseable: ATSProcedureMini[];  
+  derived_controls: Array<{  
+    level: "engineering" | "administrative" | "ppe";  
+    control: string;  
+    source: ATSProcedureMini;  
+  }>;  
+};  
+  
+type ATSChecklistDecisionHint = "STOP" | "REVIEW_REQUIRED" | "CONTINUE";  
+  
+type ATSChecklistAction = {  
+  priority: "critical" | "high" | "medium" | "low";  
+  category: "administrative" | "engineering" | "ppe";  
+  action: string;  
+  evidence: string[];  
+};  
+  
+type ATSChecklistActions = {  
+  decision_hint: ATSChecklistDecisionHint;  
+  missing: string[];  
+  critical_fails: string[];  
+  derived_controls: {  
+    engineering: string[];  
+    administrative: string[];  
+    ppe: string[];  
+  };  
+  actions: ATSChecklistAction[];  
+  snapshot: any;  
+};  
+  
+type ATS = {  
+  meta: {  
+    title: string;  
+    company: string;  
+    location: string;  
+    date: string;  
+    shift: string;  
+  };  
+  environment: any;  
+  hazards: string[];  
+  controls: {  
+    engineering: string[];  
+    administrative: string[];  
+    ppe: string[];  
+  };  
+  steps: Array<{ step: string; hazards: string[]; controls: string[] }>;  
+  stop_work: ATSStopWork;  
+  procedure_refs_used: ATSProcedureMini[];  
+  procedure_influence: ATSProcedureInfluence;  
+  checklist_actions?: ATSChecklistActions;  
+};  
+  
+type LessonLearnedBrief = {  
+  title: string;  
+  code: string;  
+  origin: string;  
+  parseable: boolean;  
+  brief: {  
+    scope: string;  
+    mandatory_permits: string[];  
+    critical_controls: {  
+      engineering: string[];  
+      administrative: string[];  
+      ppe: string[];  
+    };  
+    stop_work: string[];  
+    mandatory_steps: string[];  
+    restrictions: string[];  
+  };  
+};  
+  
+type LessonLearnedApiResponse = {  
+  lesson: any;  
+  lesson_learned_brief: LessonLearnedBrief;  
+};  
+  
+type ATSHistoryItem = {  
+  id: string;  
+  created_at: string;  
+  job_title: string | null;  
+  company: string | null;  
+  location: string | null;  
+  work_date: string | null;  
+  shift: string | null;  
+  stop_work_decision: string | null;  
+  hazards_count: number | null;  
+  controls_count: number | null;  
+};  
+  
+/* =========================  
+   UTILS  
+========================= */  
+function clsx(...parts: Array<string | false | null | undefined>) {  
+  return parts.filter(Boolean).join(" ");  
+}  
+  
+function formatDateEsCOFromISO(iso: string): string {  
+  if (!iso) return "";  
+  const [y, m, d] = iso.split("-").map(Number);  
+  if (!y || !m || !d) return "";  
+  return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;  
+}  
+  
+function cleanString(v: any): string | null {  
+  if (v === null || v === undefined) return null;  
+  const s = String(v).trim();  
+  return s.length ? s : null;  
+}  
+  
+function cleanNumber(v: any): number | null {  
+  if (v === null || v === undefined) return null;  
+  const n = Number(v);  
+  return Number.isFinite(n) ? n : null;  
+}  
+  
+function sanitizeEnvironment(env: Environment): Environment {  
+  return {  
+    timeOfDay: cleanString(env.timeOfDay),  
+    weather: cleanString(env.weather),  
+    wind: cleanString(env.wind),  
+    lighting: cleanString(env.lighting),  
+    terrain: cleanString(env.terrain),  
+    visibility: cleanString(env.visibility),  
+    temperatureC: cleanNumber(env.temperatureC),  
+    humidityPct: cleanNumber(env.humidityPct),  
+  };  
+}  
+  
+function isPdfOrDocx(file: File) {  
+  const name = file.name.toLowerCase();  
+  return name.endsWith(".pdf") || name.endsWith(".docx");  
+}  
+  
+function fileKey(f: File) {  
+  return `${f.name}__${f.size}`;  
+}  
+  
+function safeJsonParse<T = any>(  
+  text: string  
+): { ok: true; value: T } | { ok: false; error: string } {  
+  try {  
+    return { ok: true, value: JSON.parse(text) };  
+  } catch (e: any) {  
+    return { ok: false, error: String(e?.message || e) };  
+  }  
+}  
+  
+function badgeForDecision(decision?: string) {  
+  if (decision === "STOP") return { label: "STOP WORK", cls: "bg-red-600 text-white" };  
+  if (decision === "REVIEW_REQUIRED") {  
+    return { label: "REVISIÓN REQUERIDA", cls: "bg-amber-500 text-black" };  
+  }  
+  return { label: "CONTINUAR", cls: "bg-green-600 text-white" };  
+}  
+  
+function sectionColorForDecision(decision?: string) {  
+  if (decision === "STOP") return "border-red-300 bg-red-50";  
+  if (decision === "REVIEW_REQUIRED") return "border-amber-300 bg-amber-50";  
+  return "border-green-300 bg-green-50";  
+}  
+  
+function miniLabel(p: { title?: string; code?: string; origin?: string }) {  
+  const t = (p.title || "Procedimiento").trim();  
+  const c = (p.code || "").trim();  
+  const o = (p.origin || "").trim();  
+  return `${t}${c ? ` (${c})` : ""}${o ? ` — ${o}` : ""}`;  
+}  
+  
+function uniqueNonEmpty(arr: any): string[] {  
+  const out: string[] = [];  
+  const seen = new Set<string>();  
+  const src = Array.isArray(arr) ? arr : [];  
+  for (const x of src) {  
+    const s = String(x ?? "").trim();  
+    if (!s) continue;  
+    if (seen.has(s)) continue;  
+    seen.add(s);  
+    out.push(s);  
+  }  
+  return out;  
+}  
+  
+function toggleInArray(list: string[], value: string) {  
+  const exists = list.includes(value);  
+  return exists ? list.filter((x) => x !== value) : [...list, value];  
+}  
+  
+/* =========================  
+   HELPERS CHECKLIST  
+========================= */  
+function badgeForChecklistHint(decision?: string) {  
+  if (decision === "STOP") return { label: "STOP WORK", cls: "bg-red-600 text-white" };  
+  if (decision === "REVIEW_REQUIRED") {  
+    return { label: "REVISIÓN REQUERIDA", cls: "bg-amber-500 text-black" };  
+  }  
+  return { label: "CONTINUAR", cls: "bg-green-600 text-white" };  
+}  
+  
+function sortChecklistActions(list: ATSChecklistAction[]) {  
+  const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };  
+  return [...(list || [])].sort((a, b) => (order[a.priority] ?? 99) - (order[b.priority] ?? 99));  
+}  
+  
+function pillForPriority(p: ATSChecklistAction["priority"]) {  
+  if (p === "critical") return { label: "CRÍTICO", cls: "bg-red-600 text-white border-red-700" };  
+  if (p === "high") return { label: "ALTO", cls: "bg-orange-500 text-black border-orange-600" };  
+  if (p === "medium") return { label: "MEDIO", cls: "bg-amber-300 text-black border-amber-400" };  
+  return { label: "BAJO", cls: "bg-slate-200 text-black border-slate-300" };  
+}  
+  
+function pillForCategory(c: ATSChecklistAction["category"]) {  
+  if (c === "engineering") {  
+    return { label: "Ingeniería", cls: "bg-indigo-50 text-indigo-900 border-indigo-200" };  
+  }  
+  if (c === "administrative") {  
+    return { label: "Administrativo", cls: "bg-blue-50 text-blue-900 border-blue-200" };  
+  }  
+  return { label: "EPP", cls: "bg-emerald-50 text-emerald-900 border-emerald-200" };  
+}  
+  
+function pillForDecisionHint(h?: string) {  
+  if (h === "STOP") return { label: "STOP", cls: "bg-red-600 text-white" };  
+  if (h === "REVIEW_REQUIRED") return { label: "REVISAR", cls: "bg-amber-500 text-black" };  
+  return { label: "OK", cls: "bg-green-600 text-white" };  
+}  
+  
+/* =========================  
+   COMPONENTE CHECKLIST  
+========================= */  
+function ChecklistSection({ checklist }: { checklist: ATSChecklistActions }) {  
+  const hint = checklist?.decision_hint;  
+  const hintBadge = badgeForChecklistHint(hint);  
+  const hintPill = pillForDecisionHint(hint);  
+  
+  const missing = uniqueNonEmpty(checklist?.missing);  
+  const criticalFails = uniqueNonEmpty(checklist?.critical_fails);  
+  
+  const derivedEng = uniqueNonEmpty(checklist?.derived_controls?.engineering);  
+  const derivedAdm = uniqueNonEmpty(checklist?.derived_controls?.administrative);  
+  const derivedPpe = uniqueNonEmpty(checklist?.derived_controls?.ppe);  
+  
+  const actionsSorted = sortChecklistActions(  
+    Array.isArray(checklist?.actions) ? checklist.actions : []  
+  );  
+  
+  return (  
+    <section className="border rounded-xl p-4 md:p-5 bg-white shadow-sm space-y-4">  
+      <div className="flex flex-wrap items-start justify-between gap-3">  
+        <div>  
+          <div className="text-xs text-neutral-500">Checklist corporativo (Formato Estrella)</div>  
+          <div className="text-lg font-semibold">Acciones y verificación</div>  
+          <div className="text-sm text-neutral-700 mt-1">  
+            Estado:{" "}  
+            <span  
+              className={clsx(  
+                "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold",  
+                hintPill.cls  
+              )}  
+            >  
+              {hintPill.label}  
+            </span>  
+          </div>  
+        </div>  
+  
+        <span className={clsx("px-3 py-1 rounded-full text-sm font-semibold", hintBadge.cls)}>  
+          {hintBadge.label}  
+        </span>  
+      </div>  
+  
+      {(criticalFails.length > 0 || missing.length > 0) && (  
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">  
+          <div  
+            className={clsx(  
+              "border rounded-lg p-3",  
+              criticalFails.length ? "border-red-200 bg-red-50" : "border-neutral-200 bg-neutral-50"  
+            )}  
+          >  
+            <div className="font-semibold text-sm flex items-center justify-between">  
+              <span>Fallos críticos</span>  
+              <span className="text-xs text-neutral-600">{criticalFails.length}</span>  
+            </div>  
+            {criticalFails.length === 0 ? (  
+              <div className="text-sm text-neutral-600 mt-2">—</div>  
+            ) : (  
+              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">  
+                {criticalFails.map((x, i) => (  
+                  <li key={i} className="text-red-900">  
+                    {x}  
+                  </li>  
+                ))}  
+              </ul>  
+            )}  
+          </div>  
+  
+          <div  
+            className={clsx(  
+              "border rounded-lg p-3",  
+              missing.length ? "border-amber-200 bg-amber-50" : "border-neutral-200 bg-neutral-50"  
+            )}  
+          >  
+            <div className="font-semibold text-sm flex items-center justify-between">  
+              <span>Faltantes</span>  
+              <span className="text-xs text-neutral-600">{missing.length}</span>  
+            </div>  
+            {missing.length === 0 ? (  
+              <div className="text-sm text-neutral-600 mt-2">—</div>  
+            ) : (  
+              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">  
+                {missing.map((x, i) => (  
+                  <li key={i} className="text-amber-900">  
+                    {x}  
+                  </li>  
+                ))}  
+              </ul>  
+            )}  
+          </div>  
+        </div>  
+      )}  
+  
+      <div className="border rounded-lg p-3 bg-neutral-50">  
+        <div className="font-semibold text-sm">Controles derivados del checklist</div>  
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">  
+          <div className="border rounded-lg p-3 bg-white">  
+            <div className="text-sm font-semibold">Ingeniería</div>  
+            {derivedEng.length ? (  
+              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">  
+                {derivedEng.map((c, i) => (  
+                  <li key={i}>{c}</li>  
+                ))}  
+              </ul>  
+            ) : (  
+              <div className="text-sm text-neutral-600 mt-2">—</div>  
+            )}  
+          </div>  
+          <div className="border rounded-lg p-3 bg-white">  
+            <div className="text-sm font-semibold">Administrativos</div>  
+            {derivedAdm.length ? (  
+              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">  
+                {derivedAdm.map((c, i) => (  
+                  <li key={i}>{c}</li>  
+                ))}  
+              </ul>  
+            ) : (  
+              <div className="text-sm text-neutral-600 mt-2">—</div>  
+            )}  
+          </div>  
+          <div className="border rounded-lg p-3 bg-white">  
+            <div className="text-sm font-semibold">EPP</div>  
+            {derivedPpe.length ? (  
+              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">  
+                {derivedPpe.map((c, i) => (  
+                  <li key={i}>{c}</li>  
+                ))}  
+              </ul>  
+            ) : (  
+              <div className="text-sm text-neutral-600 mt-2">—</div>  
+            )}  
+          </div>  
+        </div>  
+      </div>  
+  
+      <div className="border rounded-lg p-3 bg-white">  
+        <div className="flex items-center justify-between">  
+          <div className="font-semibold text-sm">Acciones recomendadas</div>  
+          <div className="text-xs text-neutral-600">{actionsSorted.length} acción(es)</div>  
+        </div>  
+  
+        {actionsSorted.length === 0 ? (  
+          <div className="text-sm text-neutral-600 mt-2">No hay acciones adicionales.</div>  
+        ) : (  
+          <ul className="mt-3 space-y-2">  
+            {actionsSorted.map((a, i) => {  
+              const pr = pillForPriority(a.priority);  
+              const cat = pillForCategory(a.category);  
+  
+              return (  
+                <li key={i} className="border rounded-lg p-3 bg-neutral-50">  
+                  <div className="flex flex-wrap items-center gap-2 mb-2">  
+                    <span  
+                      className={clsx(  
+                        "text-[11px] font-semibold px-2 py-0.5 rounded-full border",  
+                        pr.cls  
+                      )}  
+                    >  
+                      {pr.label}  
+                    </span>  
+                    <span  
+                      className={clsx(  
+                        "text-[11px] font-semibold px-2 py-0.5 rounded-full border",  
+                        cat.cls  
+                      )}  
+                    >  
+                      {cat.label}  
+                    </span>  
+                  </div>  
+  
+                  <div className="text-sm text-neutral-900">{a.action}</div>  
+  
+                  {Array.isArray(a.evidence) && a.evidence.length > 0 && (  
+                    <div className="mt-2">  
+                      <div className="text-xs font-semibold text-neutral-600">Evidencia</div>  
+                      <div className="mt-1 flex flex-wrap gap-2">  
+                        {uniqueNonEmpty(a.evidence).map((e, idx) => (  
+                          <span  
+                            key={idx}  
+                            className="text-[11px] px-2 py-0.5 rounded-full border bg-white text-neutral-800"  
+                          >  
+                            {e}  
+                          </span>  
+                        ))}  
+                      </div>  
+                    </div>  
+                  )}  
+                </li>  
+              );  
+            })}  
+          </ul>  
+        )}  
+      </div>  
+  
+      <div className="text-xs text-neutral-500">  
+        Nota: estas acciones se derivan del Formato Estrella y reglas determinísticas; la IA solo  
+        afina redacción y verificabilidad.  
+      </div>  
+    </section>  
+  );  
+}  
+  
+/* =========================  
+   CONSTANTES FORMATO ESTRELLA  
+========================= */  
+const PELIGROS_TIPOS = [  
+  "Físico",  
+  "Químico",  
+  "Biológico",  
+  "Mecánico",  
+  "Tecnológicos",  
+  "Trabajo en alturas",  
+  "Espacio Confinado",  
+  "Locativo",  
+  "Psicosocial",  
+  "Biomecánico",  
+  "Eléctrico",  
+  "Objetos con potencial de caída",  
+  "Otros",  
+] as const;  
+  
+const PELIGROS_ENTORNO = [  
+  "Instalaciones Aledañas",  
+  "Operaciones Simultáneas",  
+  "Condiciones del terreno",  
+  "Clima",  
+  "Otros",  
+] as const;  
+  
+const EMERGENCIAS = [  
+  "Incendio / Explosión",  
+  "Descontrol de Pozos",  
+  "Accidente vial",  
+  "Afectación ambiental",  
+  "Emergencia Médica",  
+  "Orden Público",  
+  "Desastre natural",  
+  "Gas Sulfhídrico",  
+] as const;  
+  
+const EQUIPO_SEGURIDAD = [  
+  "Casco",  
+  "Guantes",  
+  "Mascara facial",  
+  "Extintores / Matafuegos",  
+  "Botas de seguridad",  
+  "Protección Respiratoria",  
+  "Antiparras/ oxicorte",  
+  "Lockout/Layout/ EMN",  
+  "Gafas de Seguridad",  
+  "Arnés de Seguridad",  
+  "Barreras",  
+  "Kit herramientas para alturas",  
+  "Protección Auditiva",  
+  "Medición de gases",  
+  "Señalización/Conos/Limitación de Área",  
+  "Otros",  
+] as const;  
+  
+const ACUERDOS_DE_VIDA = [  
+  "1_Detención de tareas",  
+  "2_Aislamiento de energía, bloqueo y etiquetado",  
+  "3_Espacios confinados",  
+  "4_Conducción segura",  
+  "5_Trabajos en caliente",  
+  "6_Línea de peligro",  
+  "7_Izaje",  
+  "8_Permiso de trabajo",  
+  "9_Trabajo en altura",  
+  "10_Salud pública",  
+] as const;  
+  
+/* =========================  
+   COMPONENT  
+========================= */  
+export default function Page() {  
+  const [jobTitle, setJobTitle] = useState("");  
+  const [company, setCompany] = useState("");  
+  const [location, setLocation] = useState("");  
+  const [dateISO, setDateISO] = useState("");  
+  const [shift, setShift] = useState("");  
+  const [activityDescription, setActivityDescription] = useState("");  
+  const [normReference, setNormReference] = useState("");  
+  const companyLogoSrc = "/logo-eies.png";  
+  
+  const [environment, setEnvironment] = useState<Environment>({  
+    timeOfDay: null,  
+    weather: null,  
+    temperatureC: null,  
+    humidityPct: null,  
+    wind: null,  
+    lighting: null,  
+    terrain: null,  
+    visibility: null,  
+  });  
+  
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);  
+  const [procedureRefs, setProcedureRefs] = useState<ProcedureRef[]>([]);  
+  const [procedureResults, setProcedureResults] = useState<ProcedureResult[]>([]);  
+  const [uploading, setUploading] = useState(false);  
+  
+  const [generatingATS, setGeneratingATS] = useState(false);  
+  const [savingATS, setSavingATS] = useState(false);  
+  const [atsResult, setAtsResult] = useState<ATS | any>(null);  
+  
+  const [atsHistory, setAtsHistory] = useState<ATSHistoryItem[]>([]);  
+  const [loadingHistory, setLoadingHistory] = useState(false);  
+  const [adminPassword, setAdminPassword] = useState("");  
+  const [adminUnlocked, setAdminUnlocked] = useState(false);  
+  const [adminAuthError, setAdminAuthError] = useState<string | null>(null);  
+  
+  const [uiError, setUiError] = useState<string | null>(null);  
+  const [uiInfo, setUiInfo] = useState<string | null>(null);  
+  
+  const fileInputRef = useRef<HTMLInputElement | null>(null);  
+  
+  const [openSteps, setOpenSteps] = useState<Record<number, boolean>>({});  
+  function toggleStep(i: number) {  
+    setOpenSteps((prev) => ({ ...prev, [i]: !prev[i] }));  
+  }  
+  
+  const [atsNumber, setAtsNumber] = useState("");  
+  const [permitNumber, setPermitNumber] = useState("");  
+  const [elaborationDateISO, setElaborationDateISO] = useState("");  
+  const [executionDateISO, setExecutionDateISO] = useState("");  
+  const [formatVersion, setFormatVersion] = useState("");  
+  const [procedureCodeRelated, setProcedureCodeRelated] = useState("");  
+  const [workFront, setWorkFront] = useState("");  
+  
+  const [incidentsReference, setIncidentsReference] = useState<"Si" | "No" | "">("");  
+  const [otherCompanies, setOtherCompanies] = useState<"Si" | "No" | "">("");  
+  
+  const [dangerTypes, setDangerTypes] = useState<string[]>([]);  
+  const [dangerTypesOther, setDangerTypesOther] = useState("");  
+  
+  const [environmentDangers, setEnvironmentDangers] = useState<string[]>([]);  
+  const [environmentDangersOther, setEnvironmentDangersOther] = useState("");  
+  
+  const [emergencies, setEmergencies] = useState<string[]>([]);  
+  
+  const [safetyEquipment, setSafetyEquipment] = useState<string[]>([]);  
+  const [safetyEquipmentOther, setSafetyEquipmentOther] = useState("");  
+  
+  const [lifeSavingRules, setLifeSavingRules] = useState<string[]>([]);  
+  
+  const [executants, setExecutants] = useState<Array<{ name: string; signature: string }>>([  
+    { name: "", signature: "" },  
+    { name: "", signature: "" },  
+    { name: "", signature: "" },  
+  ]);  
+  
+  const [supervisorName, setSupervisorName] = useState("");  
+  const [supervisorRole, setSupervisorRole] = useState("");  
+  const [supervisorSignature, setSupervisorSignature] = useState("");  
+  
+  const [checkStagesClarity, setCheckStagesClarity] = useState<"SI" | "NO" | "N.A." | "">("");  
+  const [checkHazardsControlled, setCheckHazardsControlled] = useState<"SI" | "NO" | "N.A." | "">("");  
+  const [checkIsolationConfirmed, setCheckIsolationConfirmed] = useState<"SI" | "NO" | "N.A." | "">("");  
+  const [checkCommsAgreed, setCheckCommsAgreed] = useState<"SI" | "NO" | "N.A." | "">("");  
+  const [checkToolsOk, setCheckToolsOk] = useState<"SI" | "NO" | "N.A." | "">("");  
+  
+  const [approverName, setApproverName] = useState("");  
+  const [approverSignature, setApproverSignature] = useState("");  
+  
+  const lessonInputRef = useRef<HTMLInputElement | null>(null);  
+  const [lessonFile, setLessonFile] = useState<File | null>(null);  
+  const [lessonUploading, setLessonUploading] = useState(false);  
+  const [lessonResult, setLessonResult] = useState<LessonLearnedApiResponse | null>(null);  
+  
+  function openLessonPicker() {  
+    lessonInputRef.current?.click();  
+  }  
+  
+  function clearLessonLearned() {  
+    setLessonFile(null);  
+    setLessonResult(null);  
+  }  
+  
+  function handleUnlockAdminSections() {  
+    setAdminAuthError(null);  
+  
+    const expected = process.env.NEXT_PUBLIC_ATS_ADMIN_PASSWORD;  
+  
+    if (!expected) {  
+      setAdminAuthError("No se configuró la contraseña de acceso.");  
+      return;  
+    }  
+  
+    if (adminPassword.trim() !== expected) {  
+      setAdminAuthError("Contraseña incorrecta.");  
+      setAdminUnlocked(false);  
+      return;  
+    }  
+  
+    setAdminUnlocked(true);  
+    setAdminAuthError(null);  
+    setUiInfo("🔒 Acceso autorizado a historial y estadísticas.");  
+  }  
+  
+  async function uploadLessonLearned(file: File) {  
+    setUiError(null);  
+    setUiInfo(null);  
+  
+    if (!isPdfOrDocx(file)) {  
+      setUiError("La lección aprendida debe ser PDF o DOCX.");  
+      return;  
+    }  
+  
+    setLessonUploading(true);  
+    setLessonResult(null);  
+  
+    try {  
+      const formData = new FormData();  
+      formData.append("file", file);  
+  
+      const res = await fetch("/api/lesson-learned-brief", {  
+        method: "POST",  
+        body: formData,  
+      });  
+  
+      const text = await res.text();  
+      if (!res.ok) {  
+        setUiError(`Error en /api/lesson-learned-brief (HTTP ${res.status}): ${text}`);  
+        return;  
+      }  
+  
+      const parsed = safeJsonParse<LessonLearnedApiResponse>(text);  
+      if (!parsed.ok) {  
+        setUiError(`Respuesta lección aprendida no JSON: ${parsed.error}`);  
+        return;  
+      }  
+  
+      if (!parsed.value?.lesson_learned_brief) {  
+        setUiError("Respuesta inválida: no llegó lesson_learned_brief.");  
+        return;  
+      }  
+  
+      setLessonResult(parsed.value);  
+      setUiInfo("✅ Lección aprendida procesada y lista para el ATS.");  
+    } catch (err: any) {  
+      setUiError(`Excepción cargando lección aprendida: ${String(err?.message || err)}`);  
+    } finally {  
+      setLessonUploading(false);  
+    }  
+  }  
+  
+  useEffect(() => {  
+    if (incidentsReference !== "Si") {  
+      clearLessonLearned();  
+    }  
+    // eslint-disable-next-line react-hooks/exhaustive-deps  
+  }, [incidentsReference]);  
+  
+  const printRef = useRef<HTMLDivElement>(null);  
+  
+  const fileTitle = useMemo(() => {  
+    const t = String(atsResult?.meta?.title || jobTitle || "Trabajo")  
+      .trim()  
+      .replace(/\s+/g, "_");  
+    const d =  
+      String(atsResult?.meta?.date || formatDateEsCOFromISO(executionDateISO) || "")  
+        .trim()  
+        .replace(/\//g, "-") || "";  
+    return `ATS_${t}${d ? `_${d}` : ""}`;  
+  }, [atsResult, jobTitle, executionDateISO]);  
+  
+  const handlePrintToPdf = useReactToPrint({  
+    contentRef: printRef,  
+    documentTitle: fileTitle,  
+    pageStyle: `  
+      @page { size: A4; margin: 10mm; }  
+      @media print {  
+        html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }  
+        .no-print { display: none !important; }  
+        .print-only { display: block !important; }  
+      }  
+    `,  
+    onPrintError: (_location, error) => {  
+      setUiError(`Error al imprimir: ${String((error as any)?.message || error)}`);  
+    },  
+  });  
+  
+  async function loadATSHistory() {  
+    if (!adminUnlocked) return;  
+  
+    try {  
+      setLoadingHistory(true);  
+  
+      const res = await fetch("/api/list-ats", {  
+        method: "GET",  
+        cache: "no-store",  
+      });  
+  
+      const text = await res.text();  
+      const parsed = safeJsonParse<any>(text);  
+  
+      if (!res.ok) {  
+        console.error("Error listando ATS:", text);  
+        return;  
+      }  
+  
+      if (!parsed.ok || !parsed.value?.ok) {  
+        console.error("Respuesta inválida listando ATS:", text);  
+        return;  
+      }  
+  
+      setAtsHistory(Array.isArray(parsed.value.data) ? parsed.value.data : []);  
+    } catch (err) {  
+      console.error("Excepción listando ATS:", err);  
+    } finally {  
+      setLoadingHistory(false);  
+    }  
+  }  
+  
+  useEffect(() => {  
+    if (adminUnlocked) {  
+      loadATSHistory();  
+    }  
+  }, [adminUnlocked]);  
+  
+  function openFilePicker() {  
+    fileInputRef.current?.click();  
+  }  
+  
+  function addFiles(files: File[]) {  
+    const allowed = files.filter(isPdfOrDocx);  
+    if (allowed.length === 0) {  
+      setUiError("Solo se aceptan archivos PDF o DOCX.");  
+      return;  
+    }  
+  
+    setSelectedFiles((prev) => {  
+      const existing = new Set(prev.map(fileKey));  
+      const merged = [...prev];  
+      for (const f of allowed) {  
+        if (!existing.has(fileKey(f))) merged.push(f);  
+      }  
+      return merged;  
+    });  
+  
+    setUiError(null);  
+    setUiInfo(`${allowed.length} archivo(s) agregado(s).`);  
+  }  
+  
+  function removeFile(idx: number) {  
+    setSelectedFiles((prev) => {  
+      const next = [...prev];  
+      next.splice(idx, 1);  
+      return next;  
+    });  
+  }  
+  
+  function clearAllFiles() {  
+    setSelectedFiles([]);  
+    setProcedureRefs([]);  
+    setProcedureResults([]);  
+    setAtsResult(null);  
+    setOpenSteps({});  
+    setUiInfo("Archivos limpiados.");  
+    setUiError(null);  
+  }  
+  
+  async function uploadSingleProcedure(file: File): Promise<ProcedureResult> {  
+    try {  
+      const formData = new FormData();  
+      formData.append("file", file);  
+  
+      const res = await fetch("/api/procedure-brief", {  
+        method: "POST",  
+        body: formData,  
+      });  
+  
+      const text = await res.text();  
+      if (!res.ok) {  
+        return {  
+          ok: false,  
+          fileName: file.name,  
+          error: "Error en /api/procedure-brief",  
+          details: `HTTP ${res.status}: ${text}`,  
+        };  
+      }  
+  
+      const parsed = safeJsonParse<any>(text);  
+      if (!parsed.ok) {  
+        return {  
+          ok: false,  
+          fileName: file.name,  
+          error: "Respuesta no es JSON",  
+          details: parsed.error,  
+        };  
+      }  
+  
+      const proc = parsed.value?.procedure_ref;  
+      if (!proc || typeof proc !== "object") {  
+        return {  
+          ok: false,  
+          fileName: file.name,  
+          error: "Respuesta inválida",  
+          details: "No llegó procedure_ref",  
+        };  
+      }  
+  
+      return { ok: true, fileName: file.name, procedure: proc };  
+    } catch (err: any) {  
+      return {  
+        ok: false,  
+        fileName: file.name,  
+        error: "Excepción subiendo procedimiento",  
+        details: String(err?.message || err),  
+      };  
+    }  
+  }  
+  
+  async function handleUploadProcedures() {  
+    setUiError(null);  
+    setUiInfo(null);  
+  
+    if (!selectedFiles.length) {  
+      setUiError("Selecciona al menos 1 archivo PDF o DOCX.");  
+      return;  
+    }  
+  
+    setUploading(true);  
+    setProcedureResults([]);  
+    setProcedureRefs([]);  
+    setAtsResult(null);  
+    setOpenSteps({});  
+  
+    try {  
+      const results: ProcedureResult[] = [];  
+      const procs: ProcedureRef[] = [];  
+  
+      for (const file of selectedFiles) {  
+        const r = await uploadSingleProcedure(file);  
+        results.push(r);  
+        if (r.ok && r.procedure) procs.push(r.procedure);  
+  
+        setProcedureResults([...results]);  
+        setProcedureRefs([...procs]);  
+      }  
+  
+      const okCount = procs.length;  
+      const failCount = results.filter((r) => !r.ok).length;  
+  
+      if (okCount === 0) {  
+        setUiError("Se procesaron archivos, pero no se extrajo ningún documento técnico válido.");  
+      } else {  
+        setUiInfo(`Documentos técnicos listos: ${okCount}. Fallidos: ${failCount}.`);  
+      }  
+    } finally {  
+      setUploading(false);  
+    }  
+  }  
+  const missingReasons = useMemo(() => {  
+    const reasons: string[] = [];  
+  
+    if (!jobTitle.trim()) reasons.push("Falta Actividad/Trabajo.");  
+    if (!company.trim()) reasons.push("Falta Empresa.");  
+    if (!location.trim()) reasons.push("Falta Ubicación.");  
+    if (!dateISO) reasons.push("Falta Fecha (meta).");  
+    if (!shift.trim()) reasons.push("Falta Turno/Jornada.");  
+  
+    if (selectedFiles.length === 0) reasons.push("No has seleccionado documentos técnicos.");  
+    if (procedureRefs.length === 0) reasons.push("No has procesado documentos técnicos (procedimientos/FDS).");  
+  
+    if (!executionDateISO) reasons.push("Falta Fecha de ejecución (Formato Estrella).");  
+    if (!elaborationDateISO) reasons.push("Falta Fecha de elaboración (Formato Estrella).");  
+  
+    if (incidentsReference === "Si") {  
+      if (!lessonResult?.lesson_learned_brief) {  
+        reasons.push("Incidentes = Sí → Debes cargar y procesar una Lección aprendida (PDF/DOCX).");  
+      }  
+      if (lessonUploading) reasons.push("Espera: lección aprendida en procesamiento.");  
+    }  
+  
+    if (uploading) reasons.push("Espera: documentos técnicos en procesamiento.");  
+    if (generatingATS) reasons.push("Espera: ATS generándose.");  
+    if (savingATS) reasons.push("Espera: ATS guardándose.");  
+  
+    return reasons;  
+  }, [  
+    jobTitle,  
+    company,  
+    location,  
+    dateISO,  
+    shift,  
+    selectedFiles.length,  
+    procedureRefs.length,  
+    uploading,  
+    generatingATS,  
+    savingATS,  
+    executionDateISO,  
+    elaborationDateISO,  
+    incidentsReference,  
+    lessonResult,  
+    lessonUploading,  
+  ]);  
+  
+  const canGenerateATS = useMemo(() => missingReasons.length === 0, [missingReasons]);  
+  
+  async function handleGenerateATS() {  
+    setUiError(null);  
+    setUiInfo(null);  
+  
+    if (!canGenerateATS) {  
+      setUiError("No se puede generar ATS aún. Revisa los faltantes.");  
+      return;  
+    }  
+  
+    setGeneratingATS(true);  
+    setAtsResult(null);  
+    setOpenSteps({});  
+  
+    try {  
+      const envSanitized = sanitizeEnvironment(environment);  
+  
+      const payload: any = {  
+        jobTitle: jobTitle.trim(),  
+        activity_description: activityDescription.trim(),  
+        norm_reference: normReference.trim(),  
+        company: company.trim(),  
+        location: location.trim(),  
+        date: formatDateEsCOFromISO(dateISO),  
+        shift: shift.trim(),  
+        environment: envSanitized,  
+        procedure_refs: procedureRefs,  
+        estrella_format: {  
+          atsNumber: atsNumber.trim(),  
+          permitNumber: permitNumber.trim(),  
+          elaborationDate: formatDateEsCOFromISO(elaborationDateISO),  
+          executionDate: formatDateEsCOFromISO(executionDateISO),  
+          version: formatVersion.trim(),  
+          procedureCodeRelated: procedureCodeRelated.trim(),  
+          workFront: workFront.trim(),  
+          incidentsReference,  
+          otherCompanies,  
+          dangerTypes,  
+          dangerTypesOther: dangerTypesOther.trim(),  
+          environmentDangers,  
+          environmentDangersOther: environmentDangersOther.trim(),  
+          emergencies,  
+          safetyEquipment,  
+          safetyEquipmentOther: safetyEquipmentOther.trim(),  
+          lifeSavingRules,  
+          authorizations: {  
+            executants,  
+            supervisor: {  
+              name: supervisorName.trim(),  
+              role: supervisorRole.trim(),  
+              signature: supervisorSignature.trim(),  
+              checks: {  
+                stagesClarity: checkStagesClarity,  
+                hazardsControlled: checkHazardsControlled,  
+                isolationConfirmed: checkIsolationConfirmed,  
+                commsAgreed: checkCommsAgreed,  
+                toolsOk: checkToolsOk,  
+              },  
+            },  
+            approver: {  
+              name: approverName.trim(),  
+              signature: approverSignature.trim(),  
+            },  
+          },  
+        },  
+      };  
+  
+      if (incidentsReference === "Si" && lessonResult?.lesson_learned_brief) {  
+        payload.lesson_learned_brief = lessonResult.lesson_learned_brief;  
+      }  
+  
+      console.log("ATS PAYLOAD:");  
+      console.log(payload);  
+  
+      const res = await fetch("/api/generate-ats", {  
+        method: "POST",  
+        headers: { "Content-Type": "application/json" },  
+        body: JSON.stringify(payload),  
+      });  
+  
+      const text = await res.text();  
+  
+      if (!res.ok) {  
+        setUiError(`Error generando ATS (HTTP ${res.status}): ${text}`);  
+        return;  
+      }  
+  
+      const parsed = safeJsonParse<any>(text);  
+      if (!parsed.ok) {  
+        setUiError(`Respuesta no JSON: ${parsed.error}`);  
+        return;  
+      }  
+  
+      const ats = parsed.value?.ats ?? parsed.value;  
+      setAtsResult(ats);  
+      setUiInfo("✅ ATS generado correctamente.");  
+    } catch (err: any) {  
+      setUiError(`Excepción generando ATS: ${String(err?.message || err)}`);  
+    } finally {  
+      setGeneratingATS(false);  
+    }  
+  }  
+  
+  async function handleSaveATS() {  
+    try {  
+      if (!atsResult) {  
+        setUiError("No hay ATS generado para guardar.");  
+        return;  
+      }  
+  
+      setSavingATS(true);  
+      setUiError(null);  
+      setUiInfo(null);  
+  
+      const payload = {  
+        ats: atsResult,  
+        activity_description: activityDescription.trim(),  
+        norm_reference: normReference.trim(),  
+      };  
+  
+      const res = await fetch("/api/save-ats", {  
+        method: "POST",  
+        headers: {  
+          "Content-Type": "application/json",  
+        },  
+        body: JSON.stringify(payload),  
+      });  
+  
+      const text = await res.text();  
+  
+      if (!res.ok) {  
+        setUiError(`Error guardando ATS (HTTP ${res.status}): ${text}`);  
+        return;  
+      }  
+  
+      const parsed = safeJsonParse<any>(text);  
+      if (!parsed.ok) {  
+        setUiError(`Respuesta no JSON al guardar ATS: ${parsed.error}`);  
+        return;  
+      }  
+  
+      if (!parsed.value?.ok) {  
+        setUiError("No se pudo guardar el ATS.");  
+        return;  
+      }  
+  
+      setUiInfo("✅ ATS guardado correctamente en Supabase.");  
+      await loadATSHistory();  
+    } catch (err: any) {  
+      setUiError(`Excepción guardando ATS: ${String(err?.message || err)}`);  
+    } finally {  
+      setSavingATS(false);  
+    }  
+  }  
+  
+  const decision: string | undefined = atsResult?.stop_work?.decision;  
+  const decisionBadge = badgeForDecision(decision);  
+  const decisionSectionCls = sectionColorForDecision(decision);  
+  
+  const appliedProcedures: ATSProcedureMini[] =  
+    atsResult?.procedure_influence?.applied ?? atsResult?.procedure_refs_used ?? [];  
+  
+  const notParseableProcedures: ATSProcedureMini[] =  
+    atsResult?.procedure_influence?.not_parseable ?? [];  
+  
+  const hazardsList = uniqueNonEmpty(atsResult?.hazards);  
+  const ctrlEng = uniqueNonEmpty(atsResult?.controls?.engineering);  
+  const ctrlAdm = uniqueNonEmpty(atsResult?.controls?.administrative);  
+  const ctrlPpe = uniqueNonEmpty(atsResult?.controls?.ppe);  
+  const stepsList: ATS["steps"] = Array.isArray(atsResult?.steps) ? atsResult.steps : [];  
+  
+  const execDatePrint = formatDateEsCOFromISO(executionDateISO);  
+  const elabDatePrint = formatDateEsCOFromISO(elaborationDateISO);  
+  
+  const checklist: ATSChecklistActions | null =  
+    (atsResult?.checklist_actions as ATSChecklistActions) ?? null;  
+  
+  const box = (checked: boolean) => (checked ? "X" : " ");  
+  const boxByVal = (val: string, target: "SI" | "NO" | "N.A.") => box(val === target);  
+  
+  const topHazards = hazardsList.slice(0, 8);  
+  const topControls = uniqueNonEmpty([...ctrlEng, ...ctrlAdm, ...ctrlPpe]).slice(0, 10);  
+  const topSteps = stepsList.slice(0, 6);  
+  
+  const supervisionChecklistRows = [  
+    "ATS socializado con todo el equipo (charla preturno realizada).",  
+    "Roles y responsabilidades definidos (líder, señalero, vigía, etc.).",  
+    "Área demarcada y control de accesos implementado.",  
+    "Permisos requeridos verificados y vigentes (si aplica).",  
+    "Aislamiento de energías (LOTO/EMN) verificado si aplica.",  
+    "EPP correcto disponible y en buen estado.",  
+    "Herramientas/equipos inspeccionados y aptos para uso.",  
+    "Plan de emergencias y comunicación verificados (rutas, puntos, radios/teléfono).",  
+  ];  
+  
+  return (  
+    <div className="max-w-5xl mx-auto p-6 space-y-6">  
+      <div className="no-print flex items-center justify-between gap-4">  
+        <div>  
+          <h1 className="text-3xl font-semibold">ATS Inteligente</h1>  
+          <div className="text-sm text-neutral-600">Análisis de Trabajo Seguro</div>  
+        </div>  
+  
+        <img  
+          src={companyLogoSrc}  
+          alt="Logo compañía"  
+          className="h-20 w-auto object-contain"  
+        />  
+      </div>  
+  
+      {(uiError || uiInfo) && (  
+        <div  
+          className={[  
+            "border rounded p-3 text-sm",  
+            uiError  
+              ? "bg-red-50 border-red-200 text-red-800"  
+              : "bg-green-50 border-green-200 text-green-800",  
+          ].join(" ")}  
+        >  
+          {uiError ?? uiInfo}  
+        </div>  
+      )}  
+  
+      <section className="no-print border rounded p-4 space-y-4">  
+        <div className="flex items-start justify-between gap-3 flex-wrap">  
+          <div>  
+            <div className="text-xs text-neutral-600">Gestión de HSSEQ</div>  
+            <div className="text-lg font-semibold">Análisis de Trabajo Seguro</div>  
+            <div className="text-xs text-neutral-600">  
+              Formato: <b>02-01-102-F001</b> · Revisión: <b>07</b> · Emisión: <b>04/09/2024</b>  
+            </div>  
+          </div>  
+          <div className="text-xs text-neutral-600">  
+            Página: <b>1 de 1</b>  
+          </div>  
+        </div>  
+  
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">  
+          <input  
+            placeholder="N° ATS"  
+            value={atsNumber}  
+            onChange={(e) => setAtsNumber(e.target.value)}  
+            className="border p-2 rounded"  
+          />  
+          <input  
+            placeholder="N° Permiso de trabajo"  
+            value={permitNumber}  
+            onChange={(e) => setPermitNumber(e.target.value)}  
+            className="border p-2 rounded"  
+          />  
+          <input  
+            placeholder="Versión"  
+            value={formatVersion}  
+            onChange={(e) => setFormatVersion(e.target.value)}  
+            className="border p-2 rounded"  
+          />  
+          <div className="grid grid-cols-1 gap-2">  
+            <label className="text-xs text-neutral-600">Fecha de elaboración</label>  
+            <input  
+              type="date"  
+              value={elaborationDateISO}  
+              onChange={(e) => setElaborationDateISO(e.target.value)}  
+              className="border p-2 rounded"  
+            />  
+          </div>  
+          <div className="grid grid-cols-1 gap-2">  
+            <label className="text-xs text-neutral-600">Fecha de ejecución</label>  
+            <input  
+              type="date"  
+              value={executionDateISO}  
+              onChange={(e) => setExecutionDateISO(e.target.value)}  
+              className="border p-2 rounded"  
+            />  
+          </div>  
+          <input  
+            placeholder="Frente de trabajo"  
+            value={workFront}  
+            onChange={(e) => setWorkFront(e.target.value)}  
+            className="border p-2 rounded"  
+          />  
           <input
-            placeholder="N° ATS"
-            value={atsNumber}
-            onChange={(e) => setAtsNumber(e.target.value)}
-            className="border p-2 rounded"
-          />
-          <input
-            placeholder="N° Permiso de trabajo"
-            value={permitNumber}
-            onChange={(e) => setPermitNumber(e.target.value)}
-            className="border p-2 rounded"
-          />
-          <input
-            placeholder="Versión"
-            value={formatVersion}
-            onChange={(e) => setFormatVersion(e.target.value)}
-            className="border p-2 rounded"
-          />
-          <div className="grid grid-cols-1 gap-2">
-            <label className="text-xs text-neutral-600">Fecha de elaboración</label>
-            <input
-              type="date"
-              value={elaborationDateISO}
-              onChange={(e) => setElaborationDateISO(e.target.value)}
-              className="border p-2 rounded"
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-2">
-            <label className="text-xs text-neutral-600">Fecha de ejecución</label>
-            <input
-              type="date"
-              value={executionDateISO}
-              onChange={(e) => setExecutionDateISO(e.target.value)}
-              className="border p-2 rounded"
-            />
-          </div>
-          <input
-            placeholder="Frente de trabajo"
-            value={workFront}
-            onChange={(e) => setWorkFront(e.target.value)}
-            className="border p-2 rounded"
-          />
-          <input
-            placeholder="Código del procedimiento relacionado"
+placeholder="Código del procedimiento relacionado"
             value={procedureCodeRelated}
             onChange={(e) => setProcedureCodeRelated(e.target.value)}
             className="border p-2 rounded md:col-span-2"
@@ -1377,8 +1496,7 @@ export default function Page() {
           </div>
         </div>
       </section>
-
-      <section className="no-print grid grid-cols-1 md:grid-cols-3 gap-4">
+<section className="no-print grid grid-cols-1 md:grid-cols-3 gap-4">
         <input
           placeholder="Actividad / Trabajo"
           value={jobTitle}
@@ -1391,7 +1509,7 @@ export default function Page() {
           onChange={(e) => setCompany(e.target.value)}
           className="border p-2 rounded"
         />
-<input
+        <input
           placeholder="Ubicación"
           value={location}
           onChange={(e) => setLocation(e.target.value)}
@@ -2347,9 +2465,129 @@ export default function Page() {
         </div>
       </section>
 
+      <section className="no-print border rounded p-4 space-y-3 bg-neutral-50">
+        <div className="font-semibold">Acceso restringido</div>
+        <div className="text-sm text-neutral-600">
+          El historial y las estadísticas del ATS requieren contraseña.
+        </div>
+
+        {!adminUnlocked ? (
+          <div className="flex flex-col md:flex-row gap-2 md:items-center">
+            <input
+              type="password"
+              placeholder="Ingrese contraseña"
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+              className="border p-2 rounded md:w-[320px]"
+            />
+
+            <button
+              type="button"
+              onClick={handleUnlockAdminSections}
+              className="px-4 py-2 bg-black text-white rounded"
+            >
+              Desbloquear
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="text-green-700 font-medium">
+              ✅ Acceso habilitado a historial y estadísticas
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setAdminUnlocked(false);
+                setAdminPassword("");
+                setAdminAuthError(null);
+                setAtsHistory([]);
+              }}
+              className="px-4 py-2 border rounded"
+            >
+              Bloquear nuevamente
+            </button>
+          </div>
+        )}
+
+        {adminAuthError && (
+          <div className="text-sm text-red-700">{adminAuthError}</div>
+        )}
+      </section>
+
+      {adminUnlocked && (
+        <section className="no-print border rounded p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-semibold">Historial de ATS guardados</div>
+              <div className="text-sm text-neutral-600">
+                Últimos registros almacenados en Supabase
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={loadATSHistory}
+              disabled={loadingHistory}
+              className="px-4 py-2 border rounded disabled:opacity-50"
+            >
+              {loadingHistory ? "Actualizando..." : "Actualizar"}
+            </button>
+          </div>
+
+          {loadingHistory ? (
+            <div className="text-sm text-neutral-600">Cargando historial...</div>
+          ) : atsHistory.length === 0 ? (
+            <div className="text-sm text-neutral-600">No hay ATS guardados todavía.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full border rounded text-sm">
+                <thead className="bg-neutral-100">
+                  <tr>
+                    <th className="text-left p-2 border-b">Fecha guardado</th>
+                    <th className="text-left p-2 border-b">Trabajo</th>
+                    <th className="text-left p-2 border-b">Empresa</th>
+                    <th className="text-left p-2 border-b">Ubicación</th>
+                    <th className="text-left p-2 border-b">Stop Work</th>
+                    <th className="text-left p-2 border-b">Peligros</th>
+                    <th className="text-left p-2 border-b">Controles</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {atsHistory.map((item) => (
+                    <tr key={item.id} className="border-b">
+                      <td className="p-2">
+                        {item.created_at ? new Date(item.created_at).toLocaleString() : "—"}
+                      </td>
+                      <td className="p-2">{item.job_title || "—"}</td>
+                      <td className="p-2">{item.company || "—"}</td>
+                      <td className="p-2">{item.location || "—"}</td>
+                      <td className="p-2">{item.stop_work_decision || "—"}</td>
+                      <td className="p-2">{item.hazards_count ?? 0}</td>
+                      <td className="p-2">{item.controls_count ?? 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
       {atsResult && (
-        <div className="no-print border-t pt-6 flex justify-end">
-          <button onClick={() => handlePrintToPdf()} className="px-6 py-2 bg-black text-white rounded">
+        <div className="no-print border-t pt-6 flex justify-end gap-3">
+          <button
+            onClick={handleSaveATS}
+            disabled={savingATS}
+            className="px-6 py-2 border rounded disabled:opacity-50"
+          >
+            {savingATS ? "Guardando..." : "Guardar ATS"}
+          </button>
+
+          <button
+            onClick={() => handlePrintToPdf()}
+            className="px-6 py-2 bg-black text-white rounded"
+          >
             Descargar PDF
           </button>
         </div>
