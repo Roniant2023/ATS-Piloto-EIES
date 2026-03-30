@@ -721,8 +721,6 @@ export default function Page() {
         return;
       }
 
-console.log("SAVE ATS RESPONSE PARSED:", parsed.value);
-
       if (!parsed.ok || !parsed.value?.ok) {
         setUiError("No se pudo generar el link de aprobación.");
         return;
@@ -776,16 +774,10 @@ console.log("SAVE ATS RESPONSE PARSED:", parsed.value);
       }
 
       const parsed = safeJsonParse<any>(text);
-if (!parsed.ok) {
-  setUiError(`Respuesta no JSON al guardar ATS: ${parsed.error}`);
-  return;
-}
-
-
-if (!parsed.value?.ok) {
-  setUiError("No se pudo guardar el ATS.");
-  return;
-}
+      if (!parsed.ok) {
+        setUiError(`Respuesta no JSON en lesson learned: ${parsed.error}`);
+        return;
+      }
 
       if (!parsed.value?.lesson_learned_brief) {
         setUiError("Respuesta inválida: no llegó lesson_learned_brief.");
@@ -1163,9 +1155,9 @@ if (!parsed.value?.ok) {
   }
 
   async function handleSaveATS() {
-  console.log("ENTRÓ A handleSaveATS");
+    console.log("ENTRÓ A handleSaveATS");
 
-  try {
+    try {
       if (!atsResult) {
         setUiError("No hay ATS generado para guardar.");
         return;
@@ -1208,10 +1200,10 @@ if (!parsed.value?.ok) {
       }
 
       const newId =
-  parsed.value?.id ||
-  parsed.value?.ats_id ||
-  parsed.value?.data?.[0]?.id ||
-  null;
+        parsed.value?.id ||
+        parsed.value?.ats_id ||
+        parsed.value?.data?.[0]?.id ||
+        null;
 
       setSavedAtsId(newId);
       setApproverLink("");
@@ -1267,7 +1259,7 @@ if (!parsed.value?.ok) {
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
-<div className="no-print flex items-center justify-between gap-4">
+      <div className="no-print flex items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold">ATS Inteligente</h1>
           <div className="text-sm text-neutral-600">Análisis de Trabajo Seguro</div>
@@ -1399,7 +1391,7 @@ if (!parsed.value?.ok) {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="font-semibold">Lección aprendida (obligatoria)</div>
-                <div className="text-xs text-neutral-700 mt-1">
+<div className="text-xs text-neutral-700 mt-1">
                   Marcaste <b>Incidentes = Sí</b>. Debes cargar y procesar una lección aprendida
                   antes de generar el ATS.
                 </div>
@@ -2750,7 +2742,7 @@ if (!parsed.value?.ok) {
       {atsResult && (
         <div className="no-print border-t pt-6 flex justify-end gap-3">
           <button
-	    type="button"
+            type="button"
             onClick={handleSaveATS}
             disabled={savingATS}
             className="px-6 py-2 border rounded disabled:opacity-50"
@@ -2759,7 +2751,7 @@ if (!parsed.value?.ok) {
           </button>
 
           <button
-	    type="button"
+            type="button"
             onClick={() => handlePrintToPdf()}
             className="px-6 py-2 bg-black text-white rounded"
           >
