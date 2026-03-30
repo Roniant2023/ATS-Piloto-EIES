@@ -861,6 +861,58 @@ export default function Page() {
     }
   }
 
+  async function refreshSavedATS() {
+    if (!savedAtsId) {
+      setUiError("Primero debes guardar el ATS para poder refrescarlo.");
+      return;
+    }
+
+    try {
+      setUiError(null);
+      setUiInfo(null);
+
+      const res = await fetch(`/api/get-ats?id=${savedAtsId}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const text = await res.text();
+      const parsed = safeJsonParse<any>(text);
+
+      if (!res.ok) {
+        setUiError(`Error consultando ATS actualizado (HTTP ${res.status}): ${text}`);
+        return;
+      }
+
+      if (!parsed.ok || !parsed.value?.ok) {
+        setUiError("No se pudo refrescar el ATS actualizado.");
+        return;
+      }
+
+      const freshAts = parsed.value?.data?.ats_json || null;
+
+      if (!freshAts) {
+        setUiError("La respuesta no trajo ats_json.");
+        return;
+      }
+
+      setAtsResult(freshAts);
+
+      const remoteApproverSignature =
+        freshAts?.estrella_format?.authorizations?.approver?.signature || "";
+
+      const remoteApproverName =
+        freshAts?.estrella_format?.authorizations?.approver?.name || "";
+
+      setApproverSignature(remoteApproverSignature || "");
+      setApproverName(remoteApproverName || "");
+
+      setUiInfo("✅ ATS refrescado con la firma remota del aprobador.");
+    } catch (err: any) {
+      setUiError(`Excepción refrescando ATS: ${String(err?.message || err)}`);
+    }
+  }
+
   useEffect(() => {
     if (adminUnlocked) {
       loadATSHistory();
@@ -907,6 +959,8 @@ export default function Page() {
     setOpenSteps({});
     setSavedAtsId(null);
     setApproverLink("");
+    setApproverName("");
+    setApproverSignature("");
     setUiInfo("Archivos limpiados.");
     setUiError(null);
   }
@@ -1002,8 +1056,7 @@ export default function Page() {
       setUploading(false);
     }
   }
-
-  const missingReasons = useMemo(() => {
+const missingReasons = useMemo(() => {
     const reasons: string[] = [];
 
     if (!jobTitle.trim()) reasons.push("Falta Actividad/Trabajo.");
@@ -1146,6 +1199,8 @@ export default function Page() {
       setAtsResult(ats);
       setSavedAtsId(null);
       setApproverLink("");
+      setApproverName("");
+      setApproverSignature("");
       setUiInfo("✅ ATS generado correctamente.");
     } catch (err: any) {
       setUiError(`Excepción generando ATS: ${String(err?.message || err)}`);
@@ -1207,6 +1262,8 @@ export default function Page() {
 
       setSavedAtsId(newId);
       setApproverLink("");
+      setApproverName("");
+      setApproverSignature("");
 
       setUiInfo("✅ ATS guardado correctamente en Supabase.");
       await loadATSHistory();
@@ -1391,7 +1448,7 @@ export default function Page() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="font-semibold">Lección aprendida (obligatoria)</div>
-<div className="text-xs text-neutral-700 mt-1">
+                <div className="text-xs text-neutral-700 mt-1">
                   Marcaste <b>Incidentes = Sí</b>. Debes cargar y procesar una lección aprendida
                   antes de generar el ATS.
                 </div>
@@ -1996,8 +2053,7 @@ export default function Page() {
                               </ul>
                             )}
                           </div>
-
-                          <div className="border rounded p-3 bg-gray-50">
+<div className="border rounded p-3 bg-gray-50">
                             <div className="font-medium text-sm">Controles</div>
                             {ct.length === 0 ? (
                               <div className="text-sm text-neutral-600 mt-2">—</div>
@@ -2620,6 +2676,15 @@ export default function Page() {
             >
               Copiar link
             </button>
+
+            <button
+              type="button"
+              onClick={refreshSavedATS}
+              disabled={!savedAtsId}
+              className="px-4 py-2 border rounded disabled:opacity-50"
+            >
+              Refrescar ATS
+            </button>
           </div>
 
           {approverLink && (
@@ -2748,6 +2813,15 @@ export default function Page() {
             className="px-6 py-2 border rounded disabled:opacity-50"
           >
             {savingATS ? "Guardando..." : "Guardar ATS"}
+          </button>
+
+          <button
+            type="button"
+            onClick={refreshSavedATS}
+            disabled={!savedAtsId}
+            className="px-6 py-2 border rounded disabled:opacity-50"
+          >
+            Refrescar ATS
           </button>
 
           <button
