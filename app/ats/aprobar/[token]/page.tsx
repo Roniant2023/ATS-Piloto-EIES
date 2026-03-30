@@ -1,21 +1,100 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import SignaturePadField from "../../../components/SignaturePadField";
+
+function uniqueNonEmpty(arr: any): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const src = Array.isArray(arr) ? arr : [];
+  for (const x of src) {
+    const s = String(x ?? "").trim();
+    if (!s) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
 
 export default function ApprovalPage({
   params,
 }: {
   params: Promise<{ token: string }>;
 }) {
-  const { token } = React.use(params);
-
+  const [token, setToken] = useState("");
   const [approverName, setApproverName] = useState("");
   const [approverSignature, setApproverSignature] = useState("");
   const [sending, setSending] = useState(false);
+  const [loadingPreview, setLoadingPreview] = useState(true);
   const [uiError, setUiError] = useState<string | null>(null);
   const [uiInfo, setUiInfo] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [atsPreview, setAtsPreview] = useState<any>(null);
+  const [linkInfo, setLinkInfo] = useState<any>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function init() {
+      try {
+        const resolved = await params;
+        if (!active) return;
+
+        const tk = resolved?.token || "";
+        setToken(tk);
+
+        if (!tk) {
+          setUiError("Token inválido.");
+          setLoadingPreview(false);
+          return;
+        }
+
+        const res = await fetch(`/api/get-approval-preview?token=${tk}`, {
+          method: "GET",
+          cache: "no-store",
+        });
+
+        const text = await res.text();
+        let parsed: any = null;
+
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = null;
+        }
+
+        if (!res.ok || !parsed?.ok) {
+          setUiError(parsed?.error || `Error cargando ATS (HTTP ${res.status}).`);
+          setLoadingPreview(false);
+          return;
+        }
+
+        const atsJson = parsed?.ats_record?.ats_json || null;
+        setAtsPreview(atsJson);
+        setLinkInfo(parsed?.approval_link || null);
+
+        const suggestedApproverName =
+          parsed?.approval_link?.approver_name ||
+          atsJson?.estrella_format?.authorizations?.approver?.name ||
+          "";
+
+        if (suggestedApproverName) {
+          setApproverName(suggestedApproverName);
+        }
+      } catch (err: any) {
+        setUiError(String(err?.message || err));
+      } finally {
+        if (active) setLoadingPreview(false);
+      }
+    }
+
+    init();
+
+    return () => {
+      active = false;
+    };
+  }, [params]);
 
   async function handleApprove() {
     setUiError(null);
@@ -69,12 +148,20 @@ export default function ApprovalPage({
     }
   }
 
+  const hazards = uniqueNonEmpty(atsPreview?.hazards);
+  const controls = uniqueNonEmpty([
+    ...(atsPreview?.controls?.engineering || []),
+    ...(atsPreview?.controls?.administrative || []),
+    ...(atsPreview?.controls?.ppe || []),
+  ]);
+  const steps = Array.isArray(atsPreview?.steps) ? atsPreview.steps : [];
+
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-6">
+    <div className="max-w-4xl mx-auto p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Firma de aprobación ATS</h1>
         <div className="text-sm text-neutral-600">
-          Completa la firma para aprobar el ATS de forma remota.
+          Revisa el ATS antes de registrar la aprobación remota.
         </div>
       </div>
 
@@ -91,7 +178,101 @@ export default function ApprovalPage({
         </div>
       )}
 
-      {!done && (
+      {loadingPreview ? (
+        <section className="border rounded p-4 bg-white">
+          <div className="text-sm text-neutral-600">Cargando ATS...</div>
+        </section>
+      ) : atsPreview ? (
+        <section className="border rounded p-4 bg-white space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-xs text-neutral-500">ATS asociado al link</div>
+              <div className="text-lg font-semibold">
+                {atsPreview?.meta?.title || "ATS"}
+              </div>
+              <div className="text-sm text-neutral-700 mt-1">
+                {atsPreview?.meta?.company ? `${atsPreview.meta.company} — ` : ""}
+                {atsPreview?.meta?.location || ""}
+                {atsPreview?.meta?.date ? ` — ${atsPreview.meta.date}` : ""}
+                {atsPreview?.meta?.shift ? ` — ${atsPreview.meta.shift}` : ""}
+              </div>
+            </div>
+
+            <div className="text-sm text-neutral-700">
+              Estado link:{" "}
+              <b>{linkInfo?.status === "signed" ? "Firmado" : "Pendiente"}</b>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="border rounded p-3 bg-neutral-50">
+              <div className="font-medium mb-2">Peligros identificados</div>
+              {hazards.length ? (
+                <ul className="list-disc pl-5 text-sm space-y-1">
+                  {hazards.map((h, i) => (
+                    <li key={i}>{h}</li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="text-sm text-neutral-600">—</div>
+              )}
+            </div>
+
+            <div className="border rounded p-3 bg-neutral-50">
+              <div className="font-medium mb-2">Controles clave</div>
+              {controls.length ? (
+                <ul className="list-disc pl-5 text-sm space-y-1">
+                  {controls.slice(0, 12).map((c, i) => (
+                    <li key={i}>{c}</li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="text-sm text-neutral-600">—</div>
+              )}
+            </div>
+          </div>
+
+          <div className="border rounded p-3 bg-neutral-50">
+            <div className="font-medium mb-2">Pasos del trabajo</div>
+            {steps.length ? (
+              <ol className="list-decimal pl-5 text-sm space-y-2">
+                {steps.map((s: any, i: number) => (
+                  <li key={i}>{String(s?.step || `Paso ${i + 1}`)}</li>
+                ))}
+              </ol>
+            ) : (
+              <div className="text-sm text-neutral-600">—</div>
+            )}
+          </div>
+
+          <div className="border rounded p-3 bg-neutral-50">
+            <div className="font-medium mb-2">Supervisor</div>
+            <div className="text-sm">
+              <div>
+                <b>Nombre:</b>{" "}
+                {atsPreview?.estrella_format?.authorizations?.supervisor?.name || "—"}
+              </div>
+              <div>
+                <b>Función:</b>{" "}
+                {atsPreview?.estrella_format?.authorizations?.supervisor?.role || "—"}
+              </div>
+            </div>
+
+            {atsPreview?.estrella_format?.authorizations?.supervisor?.signature && (
+              <div className="mt-3 border rounded p-2 bg-white inline-block">
+                <div className="text-xs text-neutral-600 mb-2">Firma del supervisor</div>
+                <img
+                  src={atsPreview.estrella_format.authorizations.supervisor.signature}
+                  alt="Firma supervisor"
+                  className="max-h-[100px] w-auto object-contain"
+                />
+              </div>
+            )}
+          </div>
+        </section>
+      ) : null}
+
+      {!done && !loadingPreview && atsPreview && (
         <section className="border rounded p-4 space-y-4 bg-white">
           <div>
             <label className="block text-sm font-medium mb-1">Nombre del aprobador</label>
