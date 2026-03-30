@@ -781,7 +781,6 @@ if (!parsed.ok) {
   return;
 }
 
-console.log("SAVE ATS RESPONSE PARSED:", parsed.value);
 
 if (!parsed.value?.ok) {
   setUiError("No se pudo guardar el ATS.");
