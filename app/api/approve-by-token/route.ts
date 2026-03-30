@@ -74,8 +74,8 @@ export async function POST(req: Request) {
     }
 
     const { data: atsRow, error: atsError } = await supabase
-      .from("ats_history")
-      .select("id, ats")
+      .from("ats_records")
+      .select("id, ats_json")
       .eq("id", linkRow.ats_id)
       .maybeSingle();
 
@@ -93,7 +93,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const ats = atsRow.ats || {};
+    const ats = atsRow.ats_json || {};
     const estrella = ats?.estrella_format || {};
     const authorizations = estrella?.authorizations || {};
 
@@ -118,9 +118,9 @@ export async function POST(req: Request) {
     };
 
     const { error: updateAtsError } = await supabase
-      .from("ats_history")
+      .from("ats_records")
       .update({
-        ats: updatedAts,
+        ats_json: updatedAts,
       })
       .eq("id", atsRow.id);
 
