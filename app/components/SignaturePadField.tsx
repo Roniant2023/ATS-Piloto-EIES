@@ -15,10 +15,28 @@ export default function SignaturePadField({
   onChange,
 }: SignaturePadFieldProps) {
   const sigRef = useRef<SignatureCanvas | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
   const [isReady, setIsReady] = useState(false);
+  const [canvasWidth, setCanvasWidth] = useState(500);
 
   useEffect(() => {
     setIsReady(true);
+  }, []);
+
+  useEffect(() => {
+    function updateCanvasSize() {
+      if (!containerRef.current) return;
+      const width = Math.max(320, Math.floor(containerRef.current.offsetWidth));
+      setCanvasWidth(width);
+    }
+
+    updateCanvasSize();
+    window.addEventListener("resize", updateCanvasSize);
+
+    return () => {
+      window.removeEventListener("resize", updateCanvasSize);
+    };
   }, []);
 
   function handleClear() {
@@ -40,15 +58,19 @@ export default function SignaturePadField({
     <div className="border rounded p-3 space-y-3 bg-white">
       <div className="font-medium text-sm">{label}</div>
 
-      <div className="border rounded bg-white overflow-hidden">
+      <div
+        ref={containerRef}
+        className="border rounded bg-white overflow-hidden w-full"
+      >
         {isReady && (
           <SignatureCanvas
+            key={canvasWidth}
             ref={sigRef}
             penColor="black"
             canvasProps={{
-              width: 500,
+              width: canvasWidth,
               height: 180,
-              className: "w-full h-[180px]",
+              className: "block w-full h-[180px]",
             }}
           />
         )}
