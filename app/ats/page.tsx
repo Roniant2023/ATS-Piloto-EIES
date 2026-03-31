@@ -1384,253 +1384,432 @@ if (!res.ok) {
   ];
 
   return (
-{atsResult?.meta?.company ? `${atsResult.meta.company} — ` : ""}
-                  {atsResult?.meta?.location || ""}
-                  {atsResult?.meta?.date ? ` — ${atsResult.meta.date}` : ""}
-                  {atsResult?.meta?.shift ? ` — ${atsResult.meta.shift}` : ""}
-                </div>
-              </div>
-
-              <div className="text-sm text-neutral-700">
-                <span className="mr-3">
-                  Peligros: <b>{hazardsList.length}</b>
-                </span>
-                <span className="mr-3">
-                  Controles: <b>{ctrlEng.length + ctrlAdm.length + ctrlPpe.length}</b>
-                </span>
-                <span>
-                  Pasos: <b>{stepsList.length}</b>
-                </span>
-              </div>
+<div className="text-sm text-neutral-700">
+              {(atsResult?.meta?.company ? `${atsResult.meta.company} — ` : "") +
+                (atsResult?.meta?.location || "") +
+                (atsResult?.meta?.date ? ` — ${atsResult.meta.date}` : "") +
+                (atsResult?.meta?.shift ? ` — ${atsResult.meta.shift}` : "")}
             </div>
+          </div>
 
-            <div className="border rounded p-3 bg-white">
-              <div className="font-medium">Peligros identificados</div>
-              {hazardsList.length === 0 ? (
-                <div className="text-sm text-neutral-600 mt-2">—</div>
+          <div className="text-sm text-neutral-700">
+            <span className="mr-3">
+              Peligros: <b>{hazardsList.length}</b>
+            </span>
+            <span className="mr-3">
+              Controles: <b>{ctrlEng.length + ctrlAdm.length + ctrlPpe.length}</b>
+            </span>
+            <span>
+              Pasos: <b>{stepsList.length}</b>
+            </span>
+          </div>
+        </div>
+
+        <div className="border rounded p-3 bg-white">
+          <div className="font-medium">Peligros identificados</div>
+          {hazardsList.length === 0 ? (
+            <div className="text-sm text-neutral-600 mt-2">—</div>
+          ) : (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {hazardsList.map((h, i) => (
+                <span key={i} className="text-xs border rounded-full px-3 py-1 bg-gray-50">
+                  {h}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="border rounded p-3 bg-white">
+          <div className="font-medium">Pasos del trabajo</div>
+
+          {stepsList.length === 0 ? (
+            <div className="text-sm text-neutral-600 mt-2">No se generaron pasos.</div>
+          ) : (
+            <ul className="mt-3 space-y-3">
+              {stepsList.map((s, i) => {
+                const stepTitle = (s?.step || "").trim() || `Paso ${i + 1}`;
+                const hz = uniqueNonEmpty(s?.hazards);
+                const ct = uniqueNonEmpty(s?.controls);
+                const isOpen = !!openSteps[i];
+
+                return (
+                  <li key={i} className="border rounded">
+                    <button
+                      type="button"
+                      onClick={() => toggleStep(i)}
+                      className="w-full text-left p-3 flex items-start justify-between gap-3"
+                    >
+                      <div>
+                        <div className="font-semibold">{`${i + 1}. ${stepTitle}`}</div>
+                        <div className="text-xs text-neutral-600 mt-1">
+                          Peligros: <b>{hz.length}</b> · Controles: <b>{ct.length}</b>
+                        </div>
+                      </div>
+                      <span className="text-sm text-neutral-700">{isOpen ? "▲" : "▼"}</span>
+                    </button>
+
+                    {isOpen && (
+                      <div className="p-3 pt-0 grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="border rounded p-3 bg-gray-50">
+                          <div className="font-medium text-sm">Peligros</div>
+                          {hz.length === 0 ? (
+                            <div className="text-sm text-neutral-600 mt-2">—</div>
+                          ) : (
+                            <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
+                              {hz.map((x, idx) => (
+                                <li key={idx}>{x}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                        <div className="border rounded p-3 bg-gray-50">
+                          <div className="font-medium text-sm">Controles</div>
+                          {ct.length === 0 ? (
+                            <div className="text-sm text-neutral-600 mt-2">—</div>
+                          ) : (
+                            <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
+                              {ct.map((x, idx) => (
+                                <li key={idx}>{x}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </section>
+    )}
+
+    <div ref={printRef} className="hidden print:block space-y-3 text-[12px] leading-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="font-semibold text-[14px]">Análisis de Trabajo Seguro</div>
+        <img
+          src={companyLogoSrc}
+          alt="Logo compañía"
+          style={{ height: "50px", width: "auto", objectFit: "contain" }}
+        />
+      </div>
+
+      <div className="border border-black">
+        <div className="grid grid-cols-3">
+          <div className="p-2 border-r border-black">
+            <div className="font-semibold">Gestión de HSSEQ</div>
+            <div className="text-xs">Título del Sistema</div>
+          </div>
+          <div className="p-2 border-r border-black">
+            <div className="font-semibold">Análisis de Trabajo Seguro</div>
+            <div className="text-xs">Nombre del Formato</div>
+          </div>
+          <div className="p-2">
+            <div className="font-semibold">02-01-102-F001</div>
+            <div className="text-xs">N.º del Formato</div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-4 border-t border-black">
+          <div className="p-2 border-r border-black">
+            <div className="text-xs">Fecha Emisión</div>
+            <div className="font-semibold">04 septiembre 2024</div>
+          </div>
+          <div className="p-2 border-r border-black">
+            <div className="text-xs">N.º de Revisión</div>
+            <div className="font-semibold">07</div>
+          </div>
+          <div className="p-2 border-r border-black">
+            <div className="text-xs">Preparado por</div>
+            <div className="font-semibold">HSSEQ</div>
+          </div>
+          <div className="p-2">
+            <div className="text-xs">Aprobado por</div>
+            <div className="font-semibold">RAS</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="border border-black p-2">
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <b>N° ATS:</b> {atsNumber || "—"}
+          </div>
+          <div>
+            <b>N° Permiso de trabajo:</b> {permitNumber || "—"}
+          </div>
+          <div>
+            <b>Fecha de elaboración:</b> {elabDatePrint || "—"}
+          </div>
+          <div>
+            <b>Fecha de ejecución:</b> {execDatePrint || "—"}
+          </div>
+          <div>
+            <b>Versión:</b> {formatVersion || "—"}
+          </div>
+          <div>
+            <b>Frente de trabajo:</b> {workFront || "—"}
+          </div>
+          <div className="col-span-2">
+            <b>Trabajo por desarrollar:</b> {jobTitle || atsResult?.meta?.title || "—"}
+          </div>
+          <div className="col-span-2">
+            <b>Código del Procedimiento relacionado:</b> {procedureCodeRelated || "—"}
+          </div>
+        </div>
+
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <div>
+            <b>Incidentes en trabajos similares:</b> {incidentsReference || "—"}
+          </div>
+          <div>
+            <b>Otras compañías:</b> {otherCompanies || "—"}
+          </div>
+        </div>
+
+        <div className="mt-2">
+          <b>Referencia normativa:</b> {normReference.trim() || "—"}
+        </div>
+      </div>
+
+      <div className="border border-black p-2 space-y-2">
+        <div>
+          <div className="font-semibold">Tipos de peligros para ejecutar el trabajo</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {PELIGROS_TIPOS.map((p) => (
+              <div key={p}>
+                [{dangerTypes.includes(p) ? "X" : " "}] {p}
+              </div>
+            ))}
+            {dangerTypes.includes("Otros") && (
+              <div>
+                <b>Otros:</b> {dangerTypesOther || "—"}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div className="font-semibold">PELIGROS DEL ENTORNO (Periféricos)</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {PELIGROS_ENTORNO.map((p) => (
+              <div key={p}>
+                [{environmentDangers.includes(p) ? "X" : " "}] {p}
+              </div>
+            ))}
+            {environmentDangers.includes("Otros") && (
+              <div>
+                <b>Otros:</b> {environmentDangersOther || "—"}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div className="font-semibold">SITUACIONES DE EMERGENCIA POTENCIALES</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {EMERGENCIAS.map((p) => (
+              <div key={p}>
+                [{emergencies.includes(p) ? "X" : " "}] {p}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="border border-black p-2">
+        <div className="font-semibold">Resumen generado (ATS Inteligente)</div>
+        <div className="mt-1">
+          <b>Empresa:</b> {company || atsResult?.meta?.company || "—"} · <b>Ubicación:</b>{" "}
+          {location || atsResult?.meta?.location || "—"} · <b>Turno:</b>{" "}
+          {shift || atsResult?.meta?.shift || "—"}
+        </div>
+
+        <div className="mt-2">
+          <b>Peligros identificados:</b>
+          {hazardsList.length ? (
+            <ul className="list-disc pl-5 mt-1">
+              {hazardsList.map((h, i) => (
+                <li key={i}>{h}</li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-1">—</div>
+          )}
+        </div>
+
+        <div className="mt-2">
+          <b>Controles (ingeniería / administrativos / EPP):</b>
+          <div className="grid grid-cols-3 gap-2 mt-1">
+            <div>
+              <div className="font-semibold">Ingeniería</div>
+              {ctrlEng.length ? (
+                <ul className="list-disc pl-5">{ctrlEng.map((c, i) => <li key={i}>{c}</li>)}</ul>
               ) : (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {hazardsList.map((h, i) => (
-                    <span key={i} className="text-xs border rounded-full px-3 py-1 bg-gray-50">
-                      {h}
-                    </span>
-                  ))}
-                </div>
+                <div>—</div>
               )}
             </div>
-
-            <div className="border rounded p-3 bg-white">
-              <div className="font-medium">Pasos del trabajo</div>
-
-              {stepsList.length === 0 ? (
-                <div className="text-sm text-neutral-600 mt-2">No se generaron pasos.</div>
+            <div>
+              <div className="font-semibold">Administrativos</div>
+              {ctrlAdm.length ? (
+                <ul className="list-disc pl-5">{ctrlAdm.map((c, i) => <li key={i}>{c}</li>)}</ul>
               ) : (
-                <ul className="mt-3 space-y-3">
-                  {stepsList.map((s, i) => {
-                    const stepTitle = (s?.step || "").trim() || `Paso ${i + 1}`;
-                    const hz = uniqueNonEmpty(s?.hazards);
-                    const ct = uniqueNonEmpty(s?.controls);
-                    const isOpen = !!openSteps[i];
-
-                    return (
-                      <li key={i} className="border rounded">
-                        <button
-                          type="button"
-                          onClick={() => toggleStep(i)}
-                          className="w-full text-left p-3 flex items-start justify-between gap-3"
-                        >
-                          <div>
-                            <div className="font-semibold">{`${i + 1}. ${stepTitle}`}</div>
-                            <div className="text-xs text-neutral-600 mt-1">
-                              Peligros: <b>{hz.length}</b> · Controles: <b>{ct.length}</b>
-                            </div>
-                          </div>
-                          <span className="text-sm text-neutral-700">{isOpen ? "▲" : "▼"}</span>
-                        </button>
-
-                        {isOpen && (
-                          <div className="p-3 pt-0 grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div className="border rounded p-3 bg-gray-50">
-                              <div className="font-medium text-sm">Peligros</div>
-                              {hz.length === 0 ? (
-                                <div className="text-sm text-neutral-600 mt-2">—</div>
-                              ) : (
-                                <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                                  {hz.map((x, idx) => (
-                                    <li key={idx}>{x}</li>
-                                  ))}
-                                </ul>
-                              )}
-                            </div>
-                            <div className="border rounded p-3 bg-gray-50">
-                              <div className="font-medium text-sm">Controles</div>
-                              {ct.length === 0 ? (
-                                <div className="text-sm text-neutral-600 mt-2">—</div>
-                              ) : (
-                                <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
-                                  {ct.map((x, idx) => (
-                                    <li key={idx}>{x}</li>
-                                  ))}
-                                </ul>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
+                <div>—</div>
               )}
             </div>
-          </section>
-        )}
-
-        <div ref={printRef} className="hidden print:block space-y-3 text-[12px] leading-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-semibold text-[14px]">Análisis de Trabajo Seguro</div>
-            <img
-              src={companyLogoSrc}
-              alt="Logo compañía"
-              style={{ height: "50px", width: "auto", objectFit: "contain" }}
-            />
-          </div>
-
-          <div className="border border-black">
-            <div className="grid grid-cols-3">
-              <div className="p-2 border-r border-black">
-                <div className="font-semibold">Gestión de HSSEQ</div>
-                <div className="text-xs">Título del Sistema</div>
-              </div>
-              <div className="p-2 border-r border-black">
-                <div className="font-semibold">Análisis de Trabajo Seguro</div>
-                <div className="text-xs">Nombre del Formato</div>
-              </div>
-              <div className="p-2">
-                <div className="font-semibold">02-01-102-F001</div>
-                <div className="text-xs">N.º del Formato</div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-4 border-t border-black">
-              <div className="p-2 border-r border-black">
-                <div className="text-xs">Fecha Emisión</div>
-                <div className="font-semibold">04 septiembre 2024</div>
-              </div>
-              <div className="p-2 border-r border-black">
-                <div className="text-xs">N.º de Revisión</div>
-                <div className="font-semibold">07</div>
-              </div>
-              <div className="p-2 border-r border-black">
-                <div className="text-xs">Preparado por</div>
-                <div className="font-semibold">HSSEQ</div>
-              </div>
-              <div className="p-2">
-                <div className="text-xs">Aprobado por</div>
-                <div className="font-semibold">RAS</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="border border-black p-2">
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <b>N° ATS:</b> {atsNumber || "—"}
-              </div>
-              <div>
-                <b>N° Permiso de trabajo:</b> {permitNumber || "—"}
-              </div>
-              <div>
-                <b>Fecha de elaboración:</b> {elabDatePrint || "—"}
-              </div>
-              <div>
-                <b>Fecha de ejecución:</b> {execDatePrint || "—"}
-              </div>
-              <div>
-                <b>Versión:</b> {formatVersion || "—"}
-              </div>
-              <div>
-                <b>Frente de trabajo:</b> {workFront || "—"}
-              </div>
-              <div className="col-span-2">
-                <b>Trabajo por desarrollar:</b> {jobTitle || atsResult?.meta?.title || "—"}
-              </div>
-              <div className="col-span-2">
-                <b>Código del Procedimiento relacionado:</b> {procedureCodeRelated || "—"}
-              </div>
-            </div>
-
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <div>
-                <b>Incidentes en trabajos similares:</b> {incidentsReference || "—"}
-              </div>
-              <div>
-                <b>Otras compañías:</b> {otherCompanies || "—"}
-              </div>
-            </div>
-
-            <div className="mt-2">
-              <b>Referencia normativa:</b> {normReference.trim() || "—"}
-            </div>
-          </div>
-
-          <div className="border border-black p-2 space-y-2">
             <div>
-              <div className="font-semibold">Tipos de peligros para ejecutar el trabajo</div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                {PELIGROS_TIPOS.map((p) => (
-                  <div key={p}>
-                    [{dangerTypes.includes(p) ? "X" : " "}] {p}
-                  </div>
-                ))}
-                {dangerTypes.includes("Otros") && (
-                  <div>
-                    <b>Otros:</b> {dangerTypesOther || "—"}
-                  </div>
-                )}
-              </div>
+              <div className="font-semibold">EPP</div>
+              {ctrlPpe.length ? (
+                <ul className="list-disc pl-5">{ctrlPpe.map((c, i) => <li key={i}>{c}</li>)}</ul>
+              ) : (
+                <div>—</div>
+              )}
             </div>
+          </div>
+        </div>
+      </div>
 
-            <div>
-              <div className="font-semibold">PELIGROS DEL ENTORNO (Periféricos)</div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                {PELIGROS_ENTORNO.map((p) => (
-                  <div key={p}>
-                    [{environmentDangers.includes(p) ? "X" : " "}] {p}
-                  </div>
-                ))}
-                {environmentDangers.includes("Otros") && (
-                  <div>
-                    <b>Otros:</b> {environmentDangersOther || "—"}
-                  </div>
-                )}
-              </div>
+      <div className="border border-black p-2">
+        <div className="font-semibold">Equipamiento de Seguridad para realizar este trabajo</div>
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+          {EQUIPO_SEGURIDAD.map((p) => (
+            <div key={p}>
+              [{safetyEquipment.includes(p) ? "X" : " "}] {p}
             </div>
-
+          ))}
+          {safetyEquipment.includes("Otros") && (
             <div>
-              <div className="font-semibold">SITUACIONES DE EMERGENCIA POTENCIALES</div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                {EMERGENCIAS.map((p) => (
-                  <div key={p}>
-                    [{emergencies.includes(p) ? "X" : " "}] {p}
-                  </div>
-                ))}
-              </div>
+              <b>Otros:</b> {safetyEquipmentOther || "—"}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="border border-black p-2">
+        <div className="font-semibold">Marcar Acuerdos de vida aplicables</div>
+        <div className="mt-1 grid grid-cols-2 gap-x-6 gap-y-1">
+          {ACUERDOS_DE_VIDA.map((p) => (
+            <div key={p}>
+              [{lifeSavingRules.includes(p) ? "X" : " "}] {p}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-2 font-semibold text-red-700">
+          Deténgase y busque ayuda si alguno de los controles/acciones anteriores no se ha
+          implementado
+        </div>
+      </div>
+
+      <div className="border border-black p-2">
+        <div className="font-semibold">AUTORIZACIÓN DE LOS EJECUTANTES PARA EL INICIO DEL TRABAJO</div>
+        <div className="mt-1 text-xs">
+          <b>No comenzaré a trabajar hasta confirmar que…</b>
+        </div>
+
+        <div className="mt-2 border border-black">
+          <div className="grid grid-cols-2">
+            <div className="p-2 border-r border-black font-semibold">Nombre</div>
+            <div className="p-2 font-semibold">Firma</div>
+          </div>
+          {executants.map((ex, idx) => (
+            <div key={idx} className="grid grid-cols-2 border-t border-black">
+              <div className="p-2 border-r border-black">{ex.name || "—"}</div>
+              <div className="p-2">{ex.signature || "—"}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-3 font-semibold">Verificador de inicio del trabajo (Supervisor de área)</div>
+
+        <div className="mt-2 border border-black">
+          <div className="grid grid-cols-4">
+            <div className="p-2 border-r border-black font-semibold">Chequeo</div>
+            <div className="p-2 border-r border-black font-semibold text-center">SI</div>
+            <div className="p-2 border-r border-black font-semibold text-center">NO</div>
+            <div className="p-2 font-semibold text-center">N.A.</div>
+          </div>
+
+          {[
+            ["Tengo claridad de todas las etapas del trabajo a ejecutar", checkStagesClarity],
+            ["Se han identificado y controlado todos los peligros y es seguro comenzar", checkHazardsControlled],
+            ["He confirmado el aislamiento de todas las fuentes de energías peligrosas", checkIsolationConfirmed],
+            ["Se han acordado responsabilidades y canales de comunicación del equipo", checkCommsAgreed],
+            ["Cuento con herramientas y equipos necesarios en buenas condiciones", checkToolsOk],
+          ].map(([label, val], i) => (
+            <div key={i} className="grid grid-cols-4 border-t border-black">
+              <div className="p-2 border-r border-black">{label as string}</div>
+              <div className="p-2 border-r border-black text-center">{boxByVal(val as string, "SI")}</div>
+              <div className="p-2 border-r border-black text-center">{boxByVal(val as string, "NO")}</div>
+              <div className="p-2 text-center">{boxByVal(val as string, "N.A.")}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          <div>
+            <b>Nombre:</b> {supervisorName || "—"}
+          </div>
+          <div>
+            <b>Función:</b> {supervisorRole || "—"}
+          </div>
+          <div>
+            <b>Firma:</b>{" "}
+            {supervisorSignature ? (
+              <img
+                src={supervisorSignature}
+                alt="Firma supervisor"
+                style={{ maxHeight: "50px", width: "auto", objectFit: "contain" }}
+              />
+            ) : (
+              "—"
+            )}
+          </div>
+        </div>
+
+        <div className="mt-3 font-semibold">Persona que aprueba el ATS</div>
+        <div className="mt-1 grid grid-cols-2 gap-2">
+          <div>
+            <b>Nombre:</b> {approverName || "—"}
+          </div>
+          <div>
+            <b>Firma:</b>{" "}
+            {approverSignature ? (
+              <img
+                src={approverSignature}
+                alt="Firma aprobador"
+                style={{ maxHeight: "50px", width: "auto", objectFit: "contain" }}
+              />
+            ) : (
+              "Pendiente por aprobación remota"
+            )}
+          </div>
+        </div>
+
+        <div className="mt-4 border-t border-black pt-3">
+          <div className="font-semibold">Resumen para charla preturno</div>
+
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <div>
+              <b>Trabajo:</b> {jobTitle || atsResult?.meta?.title || "—"}
+            </div>
+            <div>
+              <b>Decisión Stop Work:</b> {atsResult?.stop_work?.decision || "—"}
+            </div>
+            <div className="col-span-2">
+              <b>Mensaje clave:</b> Si alguna condición cambia o un control no está implementado →{" "}
+              <b>DETENER</b> y re-evaluar.
             </div>
           </div>
 
-          <div className="border border-black p-2">
-            <div className="font-semibold">Resumen generado (ATS Inteligente)</div>
-            <div className="mt-1">
-              <b>Empresa:</b> {company || atsResult?.meta?.company || "—"} · <b>Ubicación:</b>{" "}
-              {location || atsResult?.meta?.location || "—"} · <b>Turno:</b>{" "}
-              {shift || atsResult?.meta?.shift || "—"}
-            </div>
-
-            <div className="mt-2">
-              <b>Peligros identificados:</b>
-              {hazardsList.length ? (
+          <div className="mt-2 grid grid-cols-2 gap-3">
+            <div className="border border-black p-2">
+              <div className="font-semibold">Peligros críticos (Top)</div>
+              {topHazards.length ? (
                 <ul className="list-disc pl-5 mt-1">
-                  {hazardsList.map((h, i) => (
+                  {topHazards.map((h, i) => (
                     <li key={i}>{h}</li>
                   ))}
                 </ul>
@@ -1639,618 +1818,440 @@ if (!res.ok) {
               )}
             </div>
 
-            <div className="mt-2">
-              <b>Controles (ingeniería / administrativos / EPP):</b>
-              <div className="grid grid-cols-3 gap-2 mt-1">
-                <div>
-                  <div className="font-semibold">Ingeniería</div>
-                  {ctrlEng.length ? (
-                    <ul className="list-disc pl-5">{ctrlEng.map((c, i) => <li key={i}>{c}</li>)}</ul>
-                  ) : (
-                    <div>—</div>
-                  )}
-                </div>
-                <div>
-                  <div className="font-semibold">Administrativos</div>
-                  {ctrlAdm.length ? (
-                    <ul className="list-disc pl-5">{ctrlAdm.map((c, i) => <li key={i}>{c}</li>)}</ul>
-                  ) : (
-                    <div>—</div>
-                  )}
-                </div>
-                <div>
-                  <div className="font-semibold">EPP</div>
-                  {ctrlPpe.length ? (
-                    <ul className="list-disc pl-5">{ctrlPpe.map((c, i) => <li key={i}>{c}</li>)}</ul>
-                  ) : (
-                    <div>—</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="border border-black p-2">
-            <div className="font-semibold">Equipamiento de Seguridad para realizar este trabajo</div>
-            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-              {EQUIPO_SEGURIDAD.map((p) => (
-                <div key={p}>
-                  [{safetyEquipment.includes(p) ? "X" : " "}] {p}
-                </div>
-              ))}
-              {safetyEquipment.includes("Otros") && (
-                <div>
-                  <b>Otros:</b> {safetyEquipmentOther || "—"}
-                </div>
+            <div className="border border-black p-2">
+              <div className="font-semibold">Controles clave (Top)</div>
+              {topControls.length ? (
+                <ul className="list-disc pl-5 mt-1">
+                  {topControls.map((c, i) => (
+                    <li key={i}>{c}</li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="mt-1">—</div>
               )}
             </div>
           </div>
 
-          <div className="border border-black p-2">
-            <div className="font-semibold">Marcar Acuerdos de vida aplicables</div>
-            <div className="mt-1 grid grid-cols-2 gap-x-6 gap-y-1">
-              {ACUERDOS_DE_VIDA.map((p) => (
-                <div key={p}>
-                  [{lifeSavingRules.includes(p) ? "X" : " "}] {p}
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-2 font-semibold text-red-700">
-              Deténgase y busque ayuda si alguno de los controles/acciones anteriores no se ha
-              implementado
-            </div>
-          </div>
-
-          <div className="border border-black p-2">
-            <div className="font-semibold">AUTORIZACIÓN DE LOS EJECUTANTES PARA EL INICIO DEL TRABAJO</div>
-            <div className="mt-1 text-xs">
-              <b>No comenzaré a trabajar hasta confirmar que…</b>
-            </div>
-
-            <div className="mt-2 border border-black">
-              <div className="grid grid-cols-2">
-                <div className="p-2 border-r border-black font-semibold">Nombre</div>
-                <div className="p-2 font-semibold">Firma</div>
-              </div>
-              {executants.map((ex, idx) => (
-                <div key={idx} className="grid grid-cols-2 border-t border-black">
-                  <div className="p-2 border-r border-black">{ex.name || "—"}</div>
-                  <div className="p-2">{ex.signature || "—"}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-3 font-semibold">Verificador de inicio del trabajo (Supervisor de área)</div>
-
-            <div className="mt-2 border border-black">
-              <div className="grid grid-cols-4">
-                <div className="p-2 border-r border-black font-semibold">Chequeo</div>
-                <div className="p-2 border-r border-black font-semibold text-center">SI</div>
-                <div className="p-2 border-r border-black font-semibold text-center">NO</div>
-                <div className="p-2 font-semibold text-center">N.A.</div>
-              </div>
-
-              {[
-                ["Tengo claridad de todas las etapas del trabajo a ejecutar", checkStagesClarity],
-                ["Se han identificado y controlado todos los peligros y es seguro comenzar", checkHazardsControlled],
-                ["He confirmado el aislamiento de todas las fuentes de energías peligrosas", checkIsolationConfirmed],
-                ["Se han acordado responsabilidades y canales de comunicación del equipo", checkCommsAgreed],
-                ["Cuento con herramientas y equipos necesarios en buenas condiciones", checkToolsOk],
-              ].map(([label, val], i) => (
-                <div key={i} className="grid grid-cols-4 border-t border-black">
-                  <div className="p-2 border-r border-black">{label as string}</div>
-                  <div className="p-2 border-r border-black text-center">{boxByVal(val as string, "SI")}</div>
-                  <div className="p-2 border-r border-black text-center">{boxByVal(val as string, "NO")}</div>
-                  <div className="p-2 text-center">{boxByVal(val as string, "N.A.")}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-2 grid grid-cols-3 gap-2">
-              <div>
-                <b>Nombre:</b> {supervisorName || "—"}
-              </div>
-              <div>
-                <b>Función:</b> {supervisorRole || "—"}
-              </div>
-              <div>
-                <b>Firma:</b>{" "}
-                {supervisorSignature ? (
-                  <img
-                    src={supervisorSignature}
-                    alt="Firma supervisor"
-                    style={{ maxHeight: "50px", width: "auto", objectFit: "contain" }}
-                  />
-                ) : (
-                  "—"
-                )}
-              </div>
-            </div>
-
-            <div className="mt-3 font-semibold">Persona que aprueba el ATS</div>
-            <div className="mt-1 grid grid-cols-2 gap-2">
-              <div>
-                <b>Nombre:</b> {approverName || "—"}
-              </div>
-              <div>
-                <b>Firma:</b>{" "}
-                {approverSignature ? (
-                  <img
-                    src={approverSignature}
-                    alt="Firma aprobador"
-                    style={{ maxHeight: "50px", width: "auto", objectFit: "contain" }}
-                  />
-                ) : (
-                  "Pendiente por aprobación remota"
-                )}
-              </div>
-            </div>
-
-            <div className="mt-4 border-t border-black pt-3">
-              <div className="font-semibold">Resumen para charla preturno</div>
-
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <div>
-                  <b>Trabajo:</b> {jobTitle || atsResult?.meta?.title || "—"}
-                </div>
-                <div>
-                  <b>Decisión Stop Work:</b> {atsResult?.stop_work?.decision || "—"}
-                </div>
-                <div className="col-span-2">
-                  <b>Mensaje clave:</b> Si alguna condición cambia o un control no está implementado →{" "}
-                  <b>DETENER</b> y re-evaluar.
-                </div>
-              </div>
-
-              <div className="mt-2 grid grid-cols-2 gap-3">
-                <div className="border border-black p-2">
-                  <div className="font-semibold">Peligros críticos (Top)</div>
-                  {topHazards.length ? (
-                    <ul className="list-disc pl-5 mt-1">
-                      {topHazards.map((h, i) => (
-                        <li key={i}>{h}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="mt-1">—</div>
-                  )}
-                </div>
-
-                <div className="border border-black p-2">
-                  <div className="font-semibold">Controles clave (Top)</div>
-                  {topControls.length ? (
-                    <ul className="list-disc pl-5 mt-1">
-                      {topControls.map((c, i) => (
-                        <li key={i}>{c}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="mt-1">—</div>
-                  )}
-                </div>
-              </div>
-
-              <div className="mt-3 border border-black p-2">
-                <div className="font-semibold">Pasos críticos (resumen)</div>
-                {topSteps.length ? (
-                  <ol className="list-decimal pl-5 mt-1">
-                    {topSteps.map((s, i) => (
-                      <li key={i}>{String(s?.step || "").trim() || `Paso ${i + 1}`}</li>
-                    ))}
-                  </ol>
-                ) : (
-                  <div className="mt-1">—</div>
-                )}
-              </div>
-            </div>
-
-            <div className="mt-3 border border-black p-2">
-              <div className="font-semibold">Lista de verificación de supervisión (preturno)</div>
-
-              <div className="mt-2 border border-black">
-                <div className="grid grid-cols-4">
-                  <div className="p-2 border-r border-black font-semibold">Ítem</div>
-                  <div className="p-2 border-r border-black font-semibold text-center">SI</div>
-                  <div className="p-2 border-r border-black font-semibold text-center">NO</div>
-                  <div className="p-2 font-semibold text-center">N.A.</div>
-                </div>
-
-                {supervisionChecklistRows.map((txt, i) => (
-                  <div key={i} className="grid grid-cols-4 border-t border-black">
-                    <div className="p-2 border-r border-black">{txt}</div>
-                    <div className="p-2 border-r border-black text-center">[ ]</div>
-                    <div className="p-2 border-r border-black text-center">[ ]</div>
-                    <div className="p-2 text-center">[ ]</div>
-                  </div>
+          <div className="mt-3 border border-black p-2">
+            <div className="font-semibold">Pasos críticos (resumen)</div>
+            {topSteps.length ? (
+              <ol className="list-decimal pl-5 mt-1">
+                {topSteps.map((s, i) => (
+                  <li key={i}>{String(s?.step || "").trim() || `Paso ${i + 1}`}</li>
                 ))}
-              </div>
-
-              <div className="mt-2 text-[11px]">
-                <b>Resultado del verificador (supervisor):</b> Claridad etapas = [{box(checkStagesClarity === "SI")}] SI / [
-                {box(checkStagesClarity === "NO")}] NO / [{box(checkStagesClarity === "N.A.")}] N.A. · Peligros controlados
-                = [{box(checkHazardsControlled === "SI")}] SI / [{box(checkHazardsControlled === "NO")}] NO / [
-                {box(checkHazardsControlled === "N.A.")}] N.A. · Aislamiento = [{box(checkIsolationConfirmed === "SI")}] SI / [
-                {box(checkIsolationConfirmed === "NO")}] NO / [{box(checkIsolationConfirmed === "N.A.")}] N.A. · Comunicación
-                = [{box(checkCommsAgreed === "SI")}] SI / [{box(checkCommsAgreed === "NO")}] NO / [
-                {box(checkCommsAgreed === "N.A.")}] N.A. · Herramientas OK = [{box(checkToolsOk === "SI")}] SI / [
-                {box(checkToolsOk === "NO")}] NO / [{box(checkToolsOk === "N.A.")}] N.A.
-              </div>
-            </div>
-          </div>
-
-          <div className="border border-black p-2">
-            <div className="font-semibold">Etapas del trabajo a ejecutar (generadas)</div>
-            {stepsList.length === 0 ? (
-              <div className="mt-2">—</div>
+              </ol>
             ) : (
-              <div className="mt-2 space-y-2">
-                {stepsList.map((s, i) => (
-                  <div key={i} className="border border-black p-2">
-                    <div className="font-semibold">
-                      {i + 1}. {String(s.step || `Paso ${i + 1}`)}
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 mt-1">
-                      <div>
-                        <div className="font-semibold">Riesgos Potenciales</div>
-                        {uniqueNonEmpty(s.hazards).length ? (
-                          <ul className="list-disc pl-5 mt-1">
-                            {uniqueNonEmpty(s.hazards).map((h, idx) => (
-                              <li key={idx}>{h}</li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <div className="mt-1">—</div>
-                        )}
-                      </div>
-                      <div>
-                        <div className="font-semibold">Acciones / Controles</div>
-                        {uniqueNonEmpty(s.controls).length ? (
-                          <ul className="list-disc pl-5 mt-1">
-                            {uniqueNonEmpty(s.controls).map((c, idx) => (
-                              <li key={idx}>{c}</li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <div className="mt-1">—</div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <div className="mt-1">—</div>
             )}
-          </div>
-
-          <div className="text-[10px] text-neutral-700">
-            “Descargar PDF” abre el diálogo de impresión del navegador: selecciona “Guardar como PDF”.
           </div>
         </div>
 
-        <section className="no-print border rounded p-4 space-y-3">
-          <div className="font-semibold">Autorización y verificación (Formato Estrella)</div>
+        <div className="mt-3 border border-black p-2">
+          <div className="font-semibold">Lista de verificación de supervisión (preturno)</div>
 
-          <div className="border rounded p-3">
-            <div className="font-medium">Ejecutantes</div>
-            <div className="mt-2 space-y-2">
-              {executants.map((ex, idx) => (
-                <div key={idx} className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  <input
-                    placeholder={`Nombre ejecutante ${idx + 1}`}
-                    value={ex.name}
-                    onChange={(e) =>
-                      setExecutants((prev) => {
-                        const next = [...prev];
-                        next[idx] = { ...next[idx], name: e.target.value };
-                        return next;
-                      })
-                    }
-                    className="border p-2 rounded"
-                  />
-                  <input
-                    placeholder="Firma (texto)"
-                    value={ex.signature}
-                    onChange={(e) =>
-                      setExecutants((prev) => {
-                        const next = [...prev];
-                        next[idx] = { ...next[idx], signature: e.target.value };
-                        return next;
-                      })
-                    }
-                    className="border p-2 rounded"
-                  />
-                </div>
-              ))}
-
-              <button
-                type="button"
-                className="px-3 py-2 border rounded text-sm"
-                onClick={() => setExecutants((prev) => [...prev, { name: "", signature: "" }])}
-              >
-                + Agregar ejecutante
-              </button>
+          <div className="mt-2 border border-black">
+            <div className="grid grid-cols-4">
+              <div className="p-2 border-r border-black font-semibold">Ítem</div>
+              <div className="p-2 border-r border-black font-semibold text-center">SI</div>
+              <div className="p-2 border-r border-black font-semibold text-center">NO</div>
+              <div className="p-2 font-semibold text-center">N.A.</div>
             </div>
+
+            {supervisionChecklistRows.map((txt, i) => (
+              <div key={i} className="grid grid-cols-4 border-t border-black">
+                <div className="p-2 border-r border-black">{txt}</div>
+                <div className="p-2 border-r border-black text-center">[ ]</div>
+                <div className="p-2 border-r border-black text-center">[ ]</div>
+                <div className="p-2 text-center">[ ]</div>
+              </div>
+            ))}
           </div>
 
-          <div className="border rounded p-3">
-            <div className="font-medium">Supervisor verificador</div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
-              <input
-                placeholder="Nombre"
-                value={supervisorName}
-                onChange={(e) => setSupervisorName(e.target.value)}
-                className="border p-2 rounded"
-              />
-              <input
-                placeholder="Función"
-                value={supervisorRole}
-                onChange={(e) => setSupervisorRole(e.target.value)}
-                className="border p-2 rounded"
-              />
-            </div>
+          <div className="mt-2 text-[11px]">
+            <b>Resultado del verificador (supervisor):</b> Claridad etapas = [{box(checkStagesClarity === "SI")}] SI / [
+            {box(checkStagesClarity === "NO")}] NO / [{box(checkStagesClarity === "N.A.")}] N.A. · Peligros controlados
+            = [{box(checkHazardsControlled === "SI")}] SI / [{box(checkHazardsControlled === "NO")}] NO / [
+            {box(checkHazardsControlled === "N.A.")}] N.A. · Aislamiento = [{box(checkIsolationConfirmed === "SI")}] SI / [
+            {box(checkIsolationConfirmed === "NO")}] NO / [{box(checkIsolationConfirmed === "N.A.")}] N.A. · Comunicación
+            = [{box(checkCommsAgreed === "SI")}] SI / [{box(checkCommsAgreed === "NO")}] NO / [
+            {box(checkCommsAgreed === "N.A.")}] N.A. · Herramientas OK = [{box(checkToolsOk === "SI")}] SI / [
+            {box(checkToolsOk === "NO")}] NO / [{box(checkToolsOk === "N.A.")}] N.A.
+          </div>
+        </div>
+      </div>
 
-            <div className="mt-3">
-              <SignaturePadField
-                label="Firma del supervisor"
-                value={supervisorSignature}
-                onChange={setSupervisorSignature}
-              />
-            </div>
-
-            <div className="mt-3 grid grid-cols-1 gap-2 text-sm">
-              {[
-                ["Claridad de todas las etapas", checkStagesClarity, setCheckStagesClarity],
-                ["Peligros identificados y controlados", checkHazardsControlled, setCheckHazardsControlled],
-                ["Aislamiento energías peligrosas confirmado", checkIsolationConfirmed, setCheckIsolationConfirmed],
-                ["Responsabilidades y comunicación acordadas", checkCommsAgreed, setCheckCommsAgreed],
-                ["Herramientas/equipos en buenas condiciones", checkToolsOk, setCheckToolsOk],
-              ].map(([label, value, setter], idx) => (
-                <div key={idx} className="border rounded p-2">
-                  <div className="font-medium">{label as string}</div>
-                  <div className="mt-2 flex flex-wrap gap-4">
-                    {(["SI", "NO", "N.A."] as const).map((v) => (
-                      <label key={v} className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          name={`supcheck_${idx}`}
-                          checked={value === v}
-                          onChange={() => (setter as any)(v)}
-                        />
-                        {v}
-                      </label>
-                    ))}
+      <div className="border border-black p-2">
+        <div className="font-semibold">Etapas del trabajo a ejecutar (generadas)</div>
+        {stepsList.length === 0 ? (
+          <div className="mt-2">—</div>
+        ) : (
+          <div className="mt-2 space-y-2">
+            {stepsList.map((s, i) => (
+              <div key={i} className="border border-black p-2">
+                <div className="font-semibold">
+                  {i + 1}. {String(s.step || `Paso ${i + 1}`)}
+                </div>
+                <div className="grid grid-cols-2 gap-3 mt-1">
+                  <div>
+                    <div className="font-semibold">Riesgos Potenciales</div>
+                    {uniqueNonEmpty(s.hazards).length ? (
+                      <ul className="list-disc pl-5 mt-1">
+                        {uniqueNonEmpty(s.hazards).map((h, idx) => (
+                          <li key={idx}>{h}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="mt-1">—</div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="font-semibold">Acciones / Controles</div>
+                    {uniqueNonEmpty(s.controls).length ? (
+                      <ul className="list-disc pl-5 mt-1">
+                        {uniqueNonEmpty(s.controls).map((c, idx) => (
+                          <li key={idx}>{c}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="mt-1">—</div>
+                    )}
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="border rounded p-3">
-            <div className="font-medium">Aprobador del ATS</div>
-            <div className="grid grid-cols-1 gap-2 mt-2">
-              <input
-                placeholder="Nombre"
-                value={approverName}
-                onChange={(e) => setApproverName(e.target.value)}
-                className="border p-2 rounded"
-              />
-            </div>
-
-            <div className="mt-3 border rounded p-3 bg-neutral-50">
-              <div className="text-sm font-medium">Firma del aprobador</div>
-              <div className="text-sm text-neutral-600 mt-1">
-                La firma del aprobador se realiza únicamente desde el link de aprobación remota.
               </div>
-
-              {approverSignature ? (
-                <div className="mt-3 border rounded p-2 bg-white">
-                  <div className="text-xs text-neutral-600 mb-2">Firma registrada</div>
-                  <img
-                    src={approverSignature}
-                    alt="Firma del aprobador"
-                    className="max-h-[100px] w-auto object-contain"
-                  />
-                </div>
-              ) : (
-                <div className="mt-3 text-xs text-neutral-500">
-                  Aún no se ha registrado la firma remota del aprobador.
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-
-        {savedAtsId && supervisorSignature && (
-          <section className="no-print border rounded p-4 space-y-3 bg-blue-50 border-blue-200">
-            <div className="font-semibold">Aprobación remota</div>
-            <div className="text-sm text-neutral-700">
-              Después de guardar y firmar como supervisor, puedes generar un link para que el aprobador firme desde otro dispositivo o ubicación.
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={handlePrepareApproverLink}
-                disabled={preparingApproverLink}
-                className="px-4 py-2 bg-black text-white rounded disabled:opacity-50"
-              >
-                {preparingApproverLink ? "Generando link..." : "Generar link para aprobador"}
-              </button>
-
-              <button
-                type="button"
-                onClick={copyApproverLink}
-                disabled={!approverLink}
-                className="px-4 py-2 border rounded disabled:opacity-50"
-              >
-                Copiar link
-              </button>
-
-              <button
-                type="button"
-                onClick={sendApproverLinkByWhatsApp}
-                disabled={!approverLink}
-                className="px-4 py-2 border rounded disabled:opacity-50"
-              >
-                Enviar por WhatsApp
-              </button>
-
-              <button
-                type="button"
-                onClick={refreshSavedATS}
-                disabled={!savedAtsId}
-                className="px-4 py-2 border rounded disabled:opacity-50"
-              >
-                Refrescar ATS
-              </button>
-            </div>
-
-            {approverLink && (
-              <div className="border rounded bg-white p-3 text-sm break-all">
-                {approverLink}
-              </div>
-            )}
-          </section>
-        )}
-
-        <section className="no-print border rounded p-4 space-y-3 bg-neutral-50">
-          <div className="font-semibold">Acceso restringido</div>
-          <div className="text-sm text-neutral-600">
-            El historial y las estadísticas del ATS requieren contraseña.
-          </div>
-
-          {!adminUnlocked ? (
-            <div className="flex flex-col md:flex-row gap-2 md:items-center">
-              <input
-                type="password"
-                placeholder="Ingrese contraseña"
-                value={adminPassword}
-                onChange={(e) => setAdminPassword(e.target.value)}
-                className="border p-2 rounded md:w-[320px]"
-              />
-
-              <button
-                type="button"
-                onClick={handleUnlockAdminSections}
-                className="px-4 py-2 bg-black text-white rounded"
-              >
-                Desbloquear
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="text-green-700 font-medium">
-                ✅ Acceso habilitado a historial y estadísticas
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setAdminUnlocked(false);
-                  setAdminPassword("");
-                  setAdminAuthError(null);
-                  setAtsHistory([]);
-                }}
-                className="px-4 py-2 border rounded"
-              >
-                Bloquear nuevamente
-              </button>
-            </div>
-          )}
-
-          {adminAuthError && (
-            <div className="text-sm text-red-700">{adminAuthError}</div>
-          )}
-        </section>
-
-        {adminUnlocked && (
-          <section className="no-print border rounded p-4 space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="font-semibold">Historial de ATS guardados</div>
-                <div className="text-sm text-neutral-600">
-                  Últimos registros almacenados en Supabase
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={loadATSHistory}
-                disabled={loadingHistory}
-                className="px-4 py-2 border rounded disabled:opacity-50"
-              >
-                {loadingHistory ? "Actualizando..." : "Actualizar"}
-              </button>
-            </div>
-
-            {loadingHistory ? (
-              <div className="text-sm text-neutral-600">Cargando historial...</div>
-            ) : atsHistory.length === 0 ? (
-              <div className="text-sm text-neutral-600">No hay ATS guardados todavía.</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full border rounded text-sm">
-                  <thead className="bg-neutral-100">
-                    <tr>
-                      <th className="text-left p-2 border-b">Fecha guardado</th>
-                      <th className="text-left p-2 border-b">Trabajo</th>
-                      <th className="text-left p-2 border-b">Empresa</th>
-                      <th className="text-left p-2 border-b">Ubicación</th>
-                      <th className="text-left p-2 border-b">Stop Work</th>
-                      <th className="text-left p-2 border-b">Peligros</th>
-                      <th className="text-left p-2 border-b">Controles</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {atsHistory.map((item) => (
-                      <tr key={item.id} className="border-b">
-                        <td className="p-2">
-                          {item.created_at ? new Date(item.created_at).toLocaleString() : "—"}
-                        </td>
-                        <td className="p-2">{item.job_title || "—"}</td>
-                        <td className="p-2">{item.company || "—"}</td>
-                        <td className="p-2">{item.location || "—"}</td>
-                        <td className="p-2">{item.stop_work_decision || "—"}</td>
-                        <td className="p-2">{item.hazards_count ?? 0}</td>
-                        <td className="p-2">{item.controls_count ?? 0}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        )}
-
-        {atsResult && (
-          <div className="no-print border-t pt-6 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={handleSaveATS}
-              disabled={savingATS}
-              className="px-6 py-2 border rounded disabled:opacity-50"
-            >
-              {savingATS ? "Guardando..." : "Guardar ATS"}
-            </button>
-
-            <button
-              type="button"
-              onClick={refreshSavedATS}
-              disabled={!savedAtsId}
-              className="px-6 py-2 border rounded disabled:opacity-50"
-            >
-              Refrescar ATS
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handlePrintToPdf()}
-              className="px-6 py-2 bg-black text-white rounded"
-            >
-              Descargar PDF
-            </button>
+            ))}
           </div>
         )}
       </div>
-    );
+
+      <div className="text-[10px] text-neutral-700">
+        “Descargar PDF” abre el diálogo de impresión del navegador: selecciona “Guardar como PDF”.
+      </div>
+    </div>
+
+    <section className="no-print border rounded p-4 space-y-3">
+      <div className="font-semibold">Autorización y verificación (Formato Estrella)</div>
+
+      <div className="border rounded p-3">
+        <div className="font-medium">Ejecutantes</div>
+        <div className="mt-2 space-y-2">
+          {executants.map((ex, idx) => (
+            <div key={idx} className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <input
+                placeholder={`Nombre ejecutante ${idx + 1}`}
+                value={ex.name}
+                onChange={(e) =>
+                  setExecutants((prev) => {
+                    const next = [...prev];
+                    next[idx] = { ...next[idx], name: e.target.value };
+                    return next;
+                  })
+                }
+                className="border p-2 rounded"
+              />
+              <input
+                placeholder="Firma (texto)"
+                value={ex.signature}
+                onChange={(e) =>
+                  setExecutants((prev) => {
+                    const next = [...prev];
+                    next[idx] = { ...next[idx], signature: e.target.value };
+                    return next;
+                  })
+                }
+                className="border p-2 rounded"
+              />
+            </div>
+          ))}
+
+          <button
+            type="button"
+            className="px-3 py-2 border rounded text-sm"
+            onClick={() => setExecutants((prev) => [...prev, { name: "", signature: "" }])}
+          >
+            + Agregar ejecutante
+          </button>
+        </div>
+      </div>
+
+      <div className="border rounded p-3">
+        <div className="font-medium">Supervisor verificador</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+          <input
+            placeholder="Nombre"
+            value={supervisorName}
+            onChange={(e) => setSupervisorName(e.target.value)}
+            className="border p-2 rounded"
+          />
+          <input
+            placeholder="Función"
+            value={supervisorRole}
+            onChange={(e) => setSupervisorRole(e.target.value)}
+            className="border p-2 rounded"
+          />
+        </div>
+
+        <div className="mt-3">
+          <SignaturePadField
+            label="Firma del supervisor"
+            value={supervisorSignature}
+            onChange={setSupervisorSignature}
+          />
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-2 text-sm">
+          {[
+            ["Claridad de todas las etapas", checkStagesClarity, setCheckStagesClarity],
+            ["Peligros identificados y controlados", checkHazardsControlled, setCheckHazardsControlled],
+            ["Aislamiento energías peligrosas confirmado", checkIsolationConfirmed, setCheckIsolationConfirmed],
+            ["Responsabilidades y comunicación acordadas", checkCommsAgreed, setCheckCommsAgreed],
+            ["Herramientas/equipos en buenas condiciones", checkToolsOk, setCheckToolsOk],
+          ].map(([label, value, setter], idx) => (
+            <div key={idx} className="border rounded p-2">
+              <div className="font-medium">{label as string}</div>
+              <div className="mt-2 flex flex-wrap gap-4">
+                {(["SI", "NO", "N.A."] as const).map((v) => (
+                  <label key={v} className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name={`supcheck_${idx}`}
+                      checked={value === v}
+                      onChange={() => (setter as any)(v)}
+                    />
+                    {v}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="border rounded p-3">
+        <div className="font-medium">Aprobador del ATS</div>
+        <div className="grid grid-cols-1 gap-2 mt-2">
+          <input
+            placeholder="Nombre"
+            value={approverName}
+            onChange={(e) => setApproverName(e.target.value)}
+            className="border p-2 rounded"
+          />
+        </div>
+
+        <div className="mt-3 border rounded p-3 bg-neutral-50">
+          <div className="text-sm font-medium">Firma del aprobador</div>
+          <div className="text-sm text-neutral-600 mt-1">
+            La firma del aprobador se realiza únicamente desde el link de aprobación remota.
+          </div>
+
+          {approverSignature ? (
+            <div className="mt-3 border rounded p-2 bg-white">
+              <div className="text-xs text-neutral-600 mb-2">Firma registrada</div>
+              <img
+                src={approverSignature}
+                alt="Firma del aprobador"
+                className="max-h-[100px] w-auto object-contain"
+              />
+            </div>
+          ) : (
+            <div className="mt-3 text-xs text-neutral-500">
+              Aún no se ha registrado la firma remota del aprobador.
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+
+    {savedAtsId && supervisorSignature && (
+      <section className="no-print border rounded p-4 space-y-3 bg-blue-50 border-blue-200">
+        <div className="font-semibold">Aprobación remota</div>
+        <div className="text-sm text-neutral-700">
+          Después de guardar y firmar como supervisor, puedes generar un link para que el aprobador firme desde otro dispositivo o ubicación.
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handlePrepareApproverLink}
+            disabled={preparingApproverLink}
+            className="px-4 py-2 bg-black text-white rounded disabled:opacity-50"
+          >
+            {preparingApproverLink ? "Generando link..." : "Generar link para aprobador"}
+          </button>
+
+          <button
+            type="button"
+            onClick={copyApproverLink}
+            disabled={!approverLink}
+            className="px-4 py-2 border rounded disabled:opacity-50"
+          >
+            Copiar link
+          </button>
+
+          <button
+            type="button"
+            onClick={sendApproverLinkByWhatsApp}
+            disabled={!approverLink}
+            className="px-4 py-2 border rounded disabled:opacity-50"
+          >
+            Enviar por WhatsApp
+          </button>
+
+          <button
+            type="button"
+            onClick={refreshSavedATS}
+            disabled={!savedAtsId}
+            className="px-4 py-2 border rounded disabled:opacity-50"
+          >
+            Refrescar ATS
+          </button>
+        </div>
+
+        {approverLink && (
+          <div className="border rounded bg-white p-3 text-sm break-all">
+            {approverLink}
+          </div>
+        )}
+      </section>
+    )}
+
+    <section className="no-print border rounded p-4 space-y-3 bg-neutral-50">
+      <div className="font-semibold">Acceso restringido</div>
+      <div className="text-sm text-neutral-600">
+        El historial y las estadísticas del ATS requieren contraseña.
+      </div>
+
+      {!adminUnlocked ? (
+        <div className="flex flex-col md:flex-row gap-2 md:items-center">
+          <input
+            type="password"
+            placeholder="Ingrese contraseña"
+            value={adminPassword}
+            onChange={(e) => setAdminPassword(e.target.value)}
+            className="border p-2 rounded md:w-[320px]"
+          />
+
+          <button
+            type="button"
+            onClick={handleUnlockAdminSections}
+            className="px-4 py-2 bg-black text-white rounded"
+          >
+            Desbloquear
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="text-green-700 font-medium">
+            ✅ Acceso habilitado a historial y estadísticas
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setAdminUnlocked(false);
+              setAdminPassword("");
+              setAdminAuthError(null);
+              setAtsHistory([]);
+            }}
+            className="px-4 py-2 border rounded"
+          >
+            Bloquear nuevamente
+          </button>
+        </div>
+      )}
+
+      {adminAuthError && (
+        <div className="text-sm text-red-700">{adminAuthError}</div>
+      )}
+    </section>
+
+    {adminUnlocked && (
+      <section className="no-print border rounded p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="font-semibold">Historial de ATS guardados</div>
+            <div className="text-sm text-neutral-600">
+              Últimos registros almacenados en Supabase
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={loadATSHistory}
+            disabled={loadingHistory}
+            className="px-4 py-2 border rounded disabled:opacity-50"
+          >
+            {loadingHistory ? "Actualizando..." : "Actualizar"}
+          </button>
+        </div>
+
+        {loadingHistory ? (
+          <div className="text-sm text-neutral-600">Cargando historial...</div>
+        ) : atsHistory.length === 0 ? (
+          <div className="text-sm text-neutral-600">No hay ATS guardados todavía.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full border rounded text-sm">
+              <thead className="bg-neutral-100">
+                <tr>
+                  <th className="text-left p-2 border-b">Fecha guardado</th>
+                  <th className="text-left p-2 border-b">Trabajo</th>
+                  <th className="text-left p-2 border-b">Empresa</th>
+                  <th className="text-left p-2 border-b">Ubicación</th>
+                  <th className="text-left p-2 border-b">Stop Work</th>
+                  <th className="text-left p-2 border-b">Peligros</th>
+                  <th className="text-left p-2 border-b">Controles</th>
+                </tr>
+              </thead>
+              <tbody>
+                {atsHistory.map((item) => (
+                  <tr key={item.id} className="border-b">
+                    <td className="p-2">
+                      {item.created_at ? new Date(item.created_at).toLocaleString() : "—"}
+                    </td>
+                    <td className="p-2">{item.job_title || "—"}</td>
+                    <td className="p-2">{item.company || "—"}</td>
+                    <td className="p-2">{item.location || "—"}</td>
+                    <td className="p-2">{item.stop_work_decision || "—"}</td>
+                    <td className="p-2">{item.hazards_count ?? 0}</td>
+                    <td className="p-2">{item.controls_count ?? 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    )}
+
+    {atsResult && (
+      <div className="no-print border-t pt-6 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={handleSaveATS}
+          disabled={savingATS}
+          className="px-6 py-2 border rounded disabled:opacity-50"
+        >
+          {savingATS ? "Guardando..." : "Guardar ATS"}
+        </button>
+
+        <button
+          type="button"
+          onClick={refreshSavedATS}
+          disabled={!savedAtsId}
+          className="px-6 py-2 border rounded disabled:opacity-50"
+        >
+          Refrescar ATS
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handlePrintToPdf()}
+          className="px-6 py-2 bg-black text-white rounded"
+        >
+          Descargar PDF
+        </button>
+      </div>
+    )}
+  </div>
+);
 }
