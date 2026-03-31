@@ -997,7 +997,7 @@ export default function Page() {
       });
 
       const text = await res.text();
-      if (!res.ok) {
+if (!res.ok) {
         return {
           ok: false,
           fileName: file.name,
@@ -1244,8 +1244,54 @@ export default function Page() {
       setUiError(null);
       setUiInfo(null);
 
+      const atsToSave = {
+        ...atsResult,
+        estrella_format: {
+          ...(atsResult?.estrella_format || {}),
+          atsNumber: atsNumber.trim(),
+          permitNumber: permitNumber.trim(),
+          elaborationDate: formatDateEsCOFromISO(elaborationDateISO),
+          executionDate: formatDateEsCOFromISO(executionDateISO),
+          version: formatVersion.trim(),
+          procedureCodeRelated: procedureCodeRelated.trim(),
+          workFront: workFront.trim(),
+          incidentsReference,
+          otherCompanies,
+          dangerTypes,
+          dangerTypesOther: dangerTypesOther.trim(),
+          environmentDangers,
+          environmentDangersOther: environmentDangersOther.trim(),
+          emergencies,
+          safetyEquipment,
+          safetyEquipmentOther: safetyEquipmentOther.trim(),
+          lifeSavingRules,
+          authorizations: {
+            ...(atsResult?.estrella_format?.authorizations || {}),
+            executants,
+            supervisor: {
+              ...(atsResult?.estrella_format?.authorizations?.supervisor || {}),
+              name: supervisorName.trim(),
+              role: supervisorRole.trim(),
+              signature: supervisorSignature,
+              checks: {
+                stagesClarity: checkStagesClarity,
+                hazardsControlled: checkHazardsControlled,
+                isolationConfirmed: checkIsolationConfirmed,
+                commsAgreed: checkCommsAgreed,
+                toolsOk: checkToolsOk,
+              },
+            },
+            approver: {
+              ...(atsResult?.estrella_format?.authorizations?.approver || {}),
+              name: approverName.trim(),
+              signature: approverSignature,
+            },
+          },
+        },
+      };
+
       const payload = {
-        ats: atsResult,
+        ats: atsToSave,
         activity_description: activityDescription.trim(),
         norm_reference: normReference.trim(),
       };
@@ -1282,6 +1328,7 @@ export default function Page() {
         parsed.value?.data?.[0]?.id ||
         null;
 
+      setAtsResult(atsToSave);
       setSavedAtsId(newId);
       setApproverLink("");
       setApproverName("");
@@ -1337,667 +1384,7 @@ export default function Page() {
   ];
 
   return (
-<div className="max-w-5xl mx-auto p-6 space-y-6">
-        <div className="no-print flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-semibold">ATS Inteligente</h1>
-            <div className="text-sm text-neutral-600">Análisis de Trabajo Seguro</div>
-          </div>
-
-          <img
-            src={companyLogoSrc}
-            alt="Logo compañía"
-            className="h-20 w-auto object-contain"
-          />
-        </div>
-
-        {(uiError || uiInfo) && (
-          <div
-            className={[
-              "border rounded p-3 text-sm",
-              uiError
-                ? "bg-red-50 border-red-200 text-red-800"
-                : "bg-green-50 border-green-200 text-green-800",
-            ].join(" ")}
-          >
-            {uiError ?? uiInfo}
-          </div>
-        )}
-
-        <section className="no-print border rounded p-4 space-y-4">
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div>
-              <div className="text-xs text-neutral-600">Gestión de HSSEQ</div>
-              <div className="text-lg font-semibold">Análisis de Trabajo Seguro</div>
-              <div className="text-xs text-neutral-600">
-                Formato: <b>02-01-102-F001</b> · Revisión: <b>07</b> · Emisión: <b>04/09/2024</b>
-              </div>
-            </div>
-            <div className="text-xs text-neutral-600">
-              Página: <b>1 de 1</b>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <input
-              placeholder="N° ATS"
-              value={atsNumber}
-              onChange={(e) => setAtsNumber(e.target.value)}
-              className="border p-2 rounded"
-            />
-            <input
-              placeholder="N° Permiso de trabajo"
-              value={permitNumber}
-              onChange={(e) => setPermitNumber(e.target.value)}
-              className="border p-2 rounded"
-            />
-            <input
-              placeholder="Versión"
-              value={formatVersion}
-              onChange={(e) => setFormatVersion(e.target.value)}
-              className="border p-2 rounded"
-            />
-            <div className="grid grid-cols-1 gap-2">
-              <label className="text-xs text-neutral-600">Fecha de elaboración</label>
-              <input
-                type="date"
-                value={elaborationDateISO}
-                onChange={(e) => setElaborationDateISO(e.target.value)}
-                className="border p-2 rounded"
-              />
-            </div>
-            <div className="grid grid-cols-1 gap-2">
-              <label className="text-xs text-neutral-600">Fecha de ejecución</label>
-              <input
-                type="date"
-                value={executionDateISO}
-                onChange={(e) => setExecutionDateISO(e.target.value)}
-                className="border p-2 rounded"
-              />
-            </div>
-            <input
-              placeholder="Frente de trabajo"
-              value={workFront}
-              onChange={(e) => setWorkFront(e.target.value)}
-              className="border p-2 rounded"
-            />
-            <input
-              placeholder="Código del procedimiento relacionado"
-              value={procedureCodeRelated}
-              onChange={(e) => setProcedureCodeRelated(e.target.value)}
-              className="border p-2 rounded md:col-span-2"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-            <div className="border rounded p-3">
-              <div className="font-medium">Incidentes en trabajos similares</div>
-              <div className="mt-2 flex gap-4">
-                {(["Si", "No"] as const).map((v) => (
-                  <label key={v} className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="incidentsReference"
-                      checked={incidentsReference === v}
-                      onChange={() => setIncidentsReference(v)}
-                    />
-                    {v}
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="border rounded p-3">
-              <div className="font-medium">Involucra personal de otras compañías</div>
-              <div className="mt-2 flex gap-4">
-                {(["Si", "No"] as const).map((v) => (
-                  <label key={v} className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="otherCompanies"
-                      checked={otherCompanies === v}
-                      onChange={() => setOtherCompanies(v)}
-                    />
-                    {v}
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {incidentsReference === "Si" && (
-            <div className="border rounded p-3 bg-amber-50 border-amber-200">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="font-semibold">Lección aprendida (obligatoria)</div>
-                  <div className="text-xs text-neutral-700 mt-1">
-                    Marcaste <b>Incidentes = Sí</b>. Debes cargar y procesar una lección aprendida
-                    antes de generar el ATS.
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={openLessonPicker}
-                    className="bg-black text-white px-4 py-2 rounded"
-                    disabled={lessonUploading}
-                  >
-                    {lessonFile ? "Cambiar archivo" : "Seleccionar archivo"}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!lessonFile) {
-                        setUiError("Primero selecciona un archivo de lección aprendida.");
-                        return;
-                      }
-                      uploadLessonLearned(lessonFile);
-                    }}
-                    className="px-4 py-2 border rounded disabled:opacity-50"
-                    disabled={lessonUploading || !lessonFile}
-                  >
-                    {lessonUploading ? "Procesando..." : "Procesar lección"}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={clearLessonLearned}
-                    className="px-4 py-2 border rounded disabled:opacity-50"
-                    disabled={lessonUploading}
-                  >
-                    Limpiar
-                  </button>
-                </div>
-              </div>
-
-              <input
-                ref={lessonInputRef}
-                type="file"
-                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                hidden
-                onChange={(e) => {
-                  const f = Array.from(e.target.files || [])[0] || null;
-                  setLessonFile(f);
-                  setLessonResult(null);
-                  setUiError(null);
-                  setUiInfo(f ? `Lección aprendida seleccionada: ${f.name}` : null);
-                  e.currentTarget.value = "";
-                }}
-              />
-
-              <div className="mt-2 text-sm">
-                {lessonFile ? (
-                  <div>
-                    Archivo: <b>{lessonFile.name}</b>{" "}
-                    <span className="text-neutral-500">({Math.round(lessonFile.size / 1024)} KB)</span>
-                  </div>
-                ) : (
-                  <div className="text-neutral-700">No has seleccionado archivo.</div>
-                )}
-              </div>
-
-              <div className="mt-1 text-sm">
-                Estado:{" "}
-                {lessonResult?.lesson_learned_brief ? (
-                  <span className="text-green-700 font-semibold">✅ Lista</span>
-                ) : lessonUploading ? (
-                  <span className="text-neutral-700">Procesando...</span>
-                ) : (
-                  <span className="text-red-700 font-semibold">❌ Pendiente</span>
-                )}
-              </div>
-
-              {lessonResult?.lesson?.summary && (
-                <div className="mt-2 text-xs text-neutral-700">
-                  <b>Resumen:</b> {String(lessonResult.lesson.summary).slice(0, 220)}
-                  {String(lessonResult.lesson.summary).length > 220 ? "..." : ""}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="border rounded p-3">
-              <div className="font-medium">Tipos de peligros</div>
-              <div className="mt-2 space-y-1 text-sm">
-                {PELIGROS_TIPOS.map((p) => (
-                  <label key={p} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={dangerTypes.includes(p)}
-                      onChange={() => setDangerTypes((prev) => toggleInArray(prev, p))}
-                    />
-                    {p}
-                  </label>
-                ))}
-                {dangerTypes.includes("Otros") && (
-                  <input
-                    placeholder="Otros (Tipos de peligros)"
-                    value={dangerTypesOther}
-                    onChange={(e) => setDangerTypesOther(e.target.value)}
-                    className="border p-2 rounded w-full mt-2"
-                  />
-                )}
-              </div>
-            </div>
-
-            <div className="border rounded p-3">
-              <div className="font-medium">Peligros del entorno (Periféricos)</div>
-              <div className="mt-2 space-y-1 text-sm">
-                {PELIGROS_ENTORNO.map((p) => (
-                  <label key={p} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={environmentDangers.includes(p)}
-                      onChange={() => setEnvironmentDangers((prev) => toggleInArray(prev, p))}
-                    />
-                    {p}
-                  </label>
-                ))}
-                {environmentDangers.includes("Otros") && (
-                  <input
-                    placeholder="Otros (Entorno)"
-                    value={environmentDangersOther}
-                    onChange={(e) => setEnvironmentDangersOther(e.target.value)}
-                    className="border p-2 rounded w-full mt-2"
-                  />
-                )}
-              </div>
-            </div>
-
-            <div className="border rounded p-3">
-              <div className="font-medium">Situaciones de emergencia potenciales</div>
-              <div className="mt-2 space-y-1 text-sm">
-                {EMERGENCIAS.map((p) => (
-                  <label key={p} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={emergencies.includes(p)}
-                      onChange={() => setEmergencies((prev) => toggleInArray(prev, p))}
-                    />
-                    {p}
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="border rounded p-3">
-            <div className="font-medium">Equipamiento de seguridad</div>
-            <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
-              {EQUIPO_SEGURIDAD.map((p) => (
-                <label key={p} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={safetyEquipment.includes(p)}
-                    onChange={() => setSafetyEquipment((prev) => toggleInArray(prev, p))}
-                  />
-                  {p}
-                </label>
-              ))}
-            </div>
-            {safetyEquipment.includes("Otros") && (
-              <input
-                placeholder="Otros (Equipamiento)"
-                value={safetyEquipmentOther}
-                onChange={(e) => setSafetyEquipmentOther(e.target.value)}
-                className="border p-2 rounded w-full mt-3"
-              />
-            )}
-          </div>
-
-          <div className="border rounded p-3">
-            <div className="font-medium">Marcar Acuerdos de Vida aplicables</div>
-            <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-              {ACUERDOS_DE_VIDA.map((p) => (
-                <label key={p} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={lifeSavingRules.includes(p)}
-                    onChange={() => setLifeSavingRules((prev) => toggleInArray(prev, p))}
-                  />
-                  {p}
-                </label>
-              ))}
-            </div>
-            <div className="mt-3 text-xs font-semibold text-red-700">
-              Deténgase y busque ayuda si alguno de los controles/acciones anteriores no se ha
-              implementado
-            </div>
-          </div>
-        </section>
-
-        <section className="no-print grid grid-cols-1 md:grid-cols-3 gap-4">
-          <input
-            placeholder="Actividad / Trabajo"
-            value={jobTitle}
-            onChange={(e) => setJobTitle(e.target.value)}
-            className="border p-2 rounded"
-          />
-          <input
-            placeholder="Empresa"
-            value={company}
-            onChange={(e) => setCompany(e.target.value)}
-            className="border p-2 rounded"
-          />
-          <input
-            placeholder="Ubicación"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            className="border p-2 rounded"
-          />
-          <input
-            type="date"
-            value={dateISO}
-            onChange={(e) => setDateISO(e.target.value)}
-            className="border p-2 rounded"
-          />
-          <input
-            placeholder="Turno / Jornada"
-            value={shift}
-            onChange={(e) => setShift(e.target.value)}
-            className="border p-2 rounded md:col-span-2"
-          />
-        </section>
-
-        <section className="no-print border rounded p-4 space-y-3">
-          <div className="font-semibold">Descripción breve de la actividad</div>
-
-          <textarea
-            value={activityDescription}
-            onChange={(e) => setActivityDescription(e.target.value)}
-            placeholder="Describe brevemente el trabajo a realizar, equipo principal y contexto operativo."
-            className="border p-2 rounded w-full min-h-[110px]"
-          />
-
-          <div className="text-sm text-neutral-600">
-            Esta descripción ayuda a la IA a identificar mejor peligros, controles y pasos del ATS.
-          </div>
-        </section>
-
-        <section className="no-print border rounded p-4 space-y-3">
-          <div className="font-semibold">Referencia normativa (opcional)</div>
-
-          <input
-            type="text"
-            value={normReference}
-            onChange={(e) => setNormReference(e.target.value)}
-            placeholder="Ej: Resolución 4272 de 2021 / Resolución 0491 de 2020 / API RP 754"
-            className="border p-2 rounded w-full"
-          />
-
-          <div className="text-sm text-neutral-600">
-            Si indicas una norma o referencia, la IA la usará para reforzar recomendaciones,
-            controles y criterios de detención del ATS.
-          </div>
-        </section>
-
-        <section className="no-print border rounded p-4 space-y-3">
-          <h2 className="font-semibold">Condiciones del entorno</h2>
-
-          <select
-            value={environment.timeOfDay ?? ""}
-            onChange={(e) => setEnvironment((v) => ({ ...v, timeOfDay: e.target.value || null }))}
-            className="border p-2 rounded w-full"
-          >
-            <option value="">Hora del día</option>
-            <option value="Día">Día</option>
-            <option value="Noche">Noche</option>
-          </select>
-
-          <select
-            value={environment.weather ?? ""}
-            onChange={(e) => setEnvironment((v) => ({ ...v, weather: e.target.value || null }))}
-            className="border p-2 rounded w-full"
-          >
-            <option value="">Clima</option>
-            <option value="Despejado">Despejado</option>
-            <option value="Lluvia">Lluvia</option>
-            <option value="Tormenta eléctrica">Tormenta eléctrica</option>
-            <option value="Neblina">Neblina</option>
-          </select>
-
-          <select
-            value={environment.wind ?? ""}
-            onChange={(e) => setEnvironment((v) => ({ ...v, wind: e.target.value || null }))}
-            className="border p-2 rounded w-full"
-          >
-            <option value="">Viento</option>
-            <option value="Calmo">Calmo</option>
-            <option value="Moderado">Moderado</option>
-            <option value="Fuerte">Fuerte</option>
-          </select>
-
-          <select
-            value={environment.visibility ?? ""}
-            onChange={(e) => setEnvironment((v) => ({ ...v, visibility: e.target.value || null }))}
-            className="border p-2 rounded w-full"
-          >
-            <option value="">Visibilidad</option>
-            <option value="Alta">Alta</option>
-            <option value="Media">Media</option>
-            <option value="Baja">Baja</option>
-          </select>
-
-          <select
-            value={environment.terrain ?? ""}
-            onChange={(e) => setEnvironment((v) => ({ ...v, terrain: e.target.value || null }))}
-            className="border p-2 rounded w-full"
-          >
-            <option value="">Terreno</option>
-            <option value="Seco">Seco</option>
-            <option value="Húmedo/Resbaloso">Húmedo/Resbaloso</option>
-            <option value="Barro">Barro</option>
-          </select>
-
-          <input
-            type="number"
-            placeholder="Temperatura °C"
-            value={environment.temperatureC ?? ""}
-            onChange={(e) =>
-              setEnvironment((v) => ({
-                ...v,
-                temperatureC: e.target.value === "" ? null : Number(e.target.value),
-              }))
-            }
-            className="border p-2 rounded w-full"
-          />
-
-          <input
-            type="number"
-            placeholder="Humedad %"
-            value={environment.humidityPct ?? ""}
-            onChange={(e) =>
-              setEnvironment((v) => ({
-                ...v,
-                humidityPct: e.target.value === "" ? null : Number(e.target.value),
-              }))
-            }
-            className="border p-2 rounded w-full"
-          />
-        </section>
-
-        <section className="no-print border rounded p-4 space-y-3">
-          <div className="font-semibold">Documentos técnicos de soporte</div>
-          <div className="text-sm text-neutral-600">
-            Carga aquí procedimientos operativos y FDS/Fichas de Datos de Seguridad si aplican.
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <button onClick={openFilePicker} className="bg-black text-white px-4 py-2 rounded">
-              Seleccionar procedimientos / FDS
-            </button>
-
-            <button
-              onClick={handleUploadProcedures}
-              disabled={uploading || selectedFiles.length === 0}
-              className="px-4 py-2 border rounded disabled:opacity-50"
-            >
-              {uploading ? "Procesando..." : "Procesar documentos técnicos"}
-            </button>
-
-            <button onClick={clearAllFiles} className="px-4 py-2 border rounded">
-              Limpiar
-            </button>
-          </div>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            hidden
-            onChange={(e) => {
-              const files = Array.from(e.target.files || []);
-              addFiles(files);
-              e.currentTarget.value = "";
-            }}
-          />
-
-          <div className="text-sm">
-            {selectedFiles.length > 0 ? (
-              <div className="text-green-700">✅ {selectedFiles.length} documento(s) seleccionado(s)</div>
-            ) : (
-              <div className="text-neutral-600">No hay documentos seleccionados.</div>
-            )}
-          </div>
-
-          {selectedFiles.length > 0 && (
-            <ul className="divide-y border rounded">
-              {selectedFiles.map((f, idx) => (
-                <li
-                  key={`${f.name}-${f.size}-${idx}`}
-                  className="flex items-center justify-between p-2 text-sm"
-                >
-                  <span>
-                    {f.name} <span className="text-neutral-500">({Math.round(f.size / 1024)} KB)</span>
-                  </span>
-                  <button className="text-red-700 underline" onClick={() => removeFile(idx)}>
-                    Quitar
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <div className="text-sm">
-            Documentos técnicos procesados: <b>{procedureRefs.length}</b>
-          </div>
-
-          {procedureResults.length > 0 && (
-            <div className="mt-2">
-              <div className="text-sm font-medium mb-1">Detalle por archivo</div>
-              <ul className="divide-y border rounded">
-                {procedureResults.map((r, i) => (
-                  <li key={i} className="p-2 text-sm">
-                    <div>
-                      <b>{r.fileName}</b>{" "}
-                      {r.ok ? (
-                        <span className="text-green-700">✅ OK</span>
-                      ) : (
-                        <span className="text-red-700">❌ Error</span>
-                      )}
-                    </div>
-                    {!r.ok && (
-                      <div className="text-red-800 mt-1">
-                        {r.error || "Error"} {r.details ? `— ${r.details}` : ""}
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </section>
-
-        {missingReasons.length > 0 && (
-          <section className="no-print border rounded p-4 bg-yellow-50">
-            <div className="font-semibold mb-2">Faltantes antes de generar ATS:</div>
-            <ul className="list-disc pl-5 text-sm">
-              {missingReasons.map((m, idx) => (
-                <li key={idx}>{m}</li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        <section className="no-print border rounded p-4 flex items-center gap-3">
-          <button
-            onClick={handleGenerateATS}
-            disabled={!canGenerateATS}
-            className="bg-green-700 text-white px-5 py-2 rounded disabled:opacity-50"
-          >
-            {generatingATS ? "Generando..." : "Generar ATS"}
-          </button>
-          <span className="text-sm text-neutral-600">
-            {canGenerateATS ? "Listo para generar." : "Completa los faltantes."}
-          </span>
-        </section>
-
-        {atsResult?.stop_work && (
-          <section className={`border rounded p-4 space-y-4 ${decisionSectionCls}`}>
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div>
-                <div className="text-sm text-neutral-700">Decisión Stop Work</div>
-                <div className="text-xl font-semibold">{atsResult.stop_work.decision}</div>
-              </div>
-              <span className={`px-3 py-1 rounded-full text-sm font-semibold ${decisionBadge.cls}`}>
-                {decisionBadge.label}
-              </span>
-            </div>
-
-            <div className="text-sm">
-              <div className="font-medium">Razonamiento</div>
-              <div className="mt-1 text-neutral-800">{atsResult.stop_work.rationale || "—"}</div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="border rounded bg-white p-3">
-                <div className="font-medium">Documentos técnicos aplicados</div>
-                {appliedProcedures.length === 0 ? (
-                  <div className="text-sm text-neutral-600 mt-2">No se registraron documentos aplicados.</div>
-                ) : (
-                  <ul className="mt-2 list-disc pl-5 text-sm">
-                    {appliedProcedures.map((p, i) => (
-                      <li key={i}>{miniLabel(p)}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              <div className="border rounded bg-white p-3">
-                <div className="font-medium">Documentos no parseables</div>
-                {notParseableProcedures.length === 0 ? (
-                  <div className="text-sm text-neutral-600 mt-2">Ninguno.</div>
-                ) : (
-                  <>
-                    <div className="text-sm text-neutral-700 mt-2">
-                      Se dejan en constancia para revisión manual. <b>No bloquean</b> la generación del ATS.
-                    </div>
-                    <ul className="mt-2 list-disc pl-5 text-sm">
-                      {notParseableProcedures.map((p, i) => (
-                        <li key={i}>{miniLabel(p)}</li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {checklist && <ChecklistSection checklist={checklist} />}
-
-        {atsResult && (
-          <section className="border rounded p-4 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-sm text-neutral-600">Resumen ATS</div>
-                <div className="text-lg font-semibold">{atsResult?.meta?.title || "ATS"}</div>
-                <div className="text-sm text-neutral-700">
-                  {atsResult?.meta?.company ? `${atsResult.meta.company} — ` : ""}
+{atsResult?.meta?.company ? `${atsResult.meta.company} — ` : ""}
                   {atsResult?.meta?.location || ""}
                   {atsResult?.meta?.date ? ` — ${atsResult.meta.date}` : ""}
                   {atsResult?.meta?.shift ? ` — ${atsResult.meta.shift}` : ""}
@@ -2019,7 +1406,7 @@ export default function Page() {
 
             <div className="border rounded p-3 bg-white">
               <div className="font-medium">Peligros identificados</div>
-{hazardsList.length === 0 ? (
+              {hazardsList.length === 0 ? (
                 <div className="text-sm text-neutral-600 mt-2">—</div>
               ) : (
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -2866,4 +2253,4 @@ export default function Page() {
         )}
       </div>
     );
-  }
+}
