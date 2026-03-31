@@ -67,6 +67,39 @@ function normalizeYesNo(v: any): "Si" | "No" | "" {
 }
 
 /* =========================
+   Normalizador Formato Estrella
+========================= */
+function normalizeEstrellaFormat(v: any) {
+  const e = v && typeof v === "object" ? v : {};
+  const auth = e?.authorizations && typeof e.authorizations === "object" ? e.authorizations : {};
+  const supervisor = auth?.supervisor && typeof auth.supervisor === "object" ? auth.supervisor : {};
+  const approver = auth?.approver && typeof auth.approver === "object" ? auth.approver : {};
+
+  return {
+    ...e,
+    authorizations: {
+      ...auth,
+      executants: Array.isArray(auth?.executants) ? auth.executants : [],
+      supervisor: {
+        ...supervisor,
+        name: pickString(supervisor?.name, ""),
+        role: pickString(supervisor?.role, ""),
+        signature: pickString(supervisor?.signature, ""),
+        checks:
+          supervisor?.checks && typeof supervisor.checks === "object"
+            ? supervisor.checks
+            : {},
+      },
+      approver: {
+        ...approver,
+        name: pickString(approver?.name, ""),
+        signature: pickString(approver?.signature, ""),
+      },
+    },
+  };
+}
+
+/* =========================
    Stop Work determinístico
 ========================= */
 function computeStopWorkTriggers(payload: any) {
@@ -189,11 +222,11 @@ function normalizeEnvironment(env: any) {
     visibility: toStrOrNull(e.visibility),
     noiseLevel: toStrOrNull(e.noiseLevel),
     procedureUsedText: toStrOrNull(e.procedureUsedText),
-   controlsAvailable: Array.isArray(e.controlsAvailable)
-  ? e.controlsAvailable
-      .map((x: any) => String(x).trim())
-      .filter((s: string) => s.length > 0)
-  : [],
+    controlsAvailable: Array.isArray(e.controlsAvailable)
+      ? e.controlsAvailable
+          .map((x: any) => String(x).trim())
+          .filter((s: string) => s.length > 0)
+      : [],
   };
 }
 
@@ -859,6 +892,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const environment = normalizeEnvironment(body?.environment);
+    const estrellaFormat = normalizeEstrellaFormat(body?.estrella_format);
 
     const estrella = body?.estrella_format ?? null;
     const checklistBase = deriveChecklistDeterministic(estrella, body);
@@ -1103,6 +1137,7 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
         procedure_refs_used: procedureInfluence.applied,
         procedure_influence: procedureInfluence,
         checklist_actions: checklistBase,
+        estrella_format: estrellaFormat,
       };
     }
 
@@ -1379,6 +1414,23 @@ Devuelve SOLO JSON que cumpla el schema (sin markdown).
 
     ats.stop_work.auto_triggers = uniqStrings(ats.stop_work.auto_triggers);
     ats.stop_work.criteria = uniqStrings(ats.stop_work.criteria);
+
+    ats.estrella_format = normalizeEstrellaFormat({
+      ...body?.estrella_format,
+      ...ats?.estrella_format,
+      authorizations: {
+        ...(body?.estrella_format?.authorizations || {}),
+        ...(ats?.estrella_format?.authorizations || {}),
+        supervisor: {
+          ...(body?.estrella_format?.authorizations?.supervisor || {}),
+          ...(ats?.estrella_format?.authorizations?.supervisor || {}),
+        },
+        approver: {
+          ...(body?.estrella_format?.authorizations?.approver || {}),
+          ...(ats?.estrella_format?.authorizations?.approver || {}),
+        },
+      },
+    });
 
     return NextResponse.json({ ats }, { status: 200 });
   } catch (err: any) {
