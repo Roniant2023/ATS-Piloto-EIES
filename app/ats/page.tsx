@@ -556,7 +556,7 @@ const APPROVERS: ApproverOption[] = [
     id: "test-test",
     name: "TEST",
     role: "TEST",
-    email: "rodriguez@estrellaies.com",
+    email: "rrodriguez@estrellaies.com",
     phone: "3212551148",
   },
 ];
