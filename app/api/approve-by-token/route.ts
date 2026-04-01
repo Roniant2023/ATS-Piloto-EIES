@@ -73,6 +73,13 @@ export async function POST(req: Request) {
       );
     }
 
+    if (!linkRow.access_validated) {
+      return NextResponse.json(
+        { ok: false, error: "Acceso no validado. Debes ingresar el código OTP antes de firmar." },
+        { status: 403 }
+      );
+    }
+
     const { data: atsRow, error: atsError } = await supabase
       .from("ats_records")
       .select("id, ats_json")
@@ -136,6 +143,8 @@ export async function POST(req: Request) {
       .update({
         status: "signed",
         signed_at: new Date().toISOString(),
+        otp_code: null,
+        otp_expires_at: null,
       })
       .eq("id", linkRow.id);
 

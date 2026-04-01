@@ -20,12 +20,37 @@ function getSupabaseAdmin() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+
     const atsId = String(body?.ats_id || "").trim();
     const approverName = String(body?.approver_name || "").trim();
+    const approverRole = String(body?.approver_role || "").trim();
+    const approverEmail = String(body?.approver_email || "").trim();
+    const approverPhone = String(body?.approver_phone || "").trim();
 
     if (!atsId) {
       return NextResponse.json(
         { ok: false, error: "ats_id es requerido." },
+        { status: 400 }
+      );
+    }
+
+    if (!approverName) {
+      return NextResponse.json(
+        { ok: false, error: "approver_name es requerido." },
+        { status: 400 }
+      );
+    }
+
+    if (!approverEmail) {
+      return NextResponse.json(
+        { ok: false, error: "approver_email es requerido." },
+        { status: 400 }
+      );
+    }
+
+    if (!approverPhone) {
+      return NextResponse.json(
+        { ok: false, error: "approver_phone es requerido." },
         { status: 400 }
       );
     }
@@ -46,14 +71,18 @@ export async function POST(req: Request) {
     const supabase = getSupabaseAdmin();
 
     const token = crypto.randomBytes(24).toString("hex");
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(); // 7 días
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
 
     const { error } = await supabase.from("ats_approval_links").insert({
       ats_id: atsId,
       token,
-      approver_name: approverName || null,
+      approver_name: approverName,
+      approver_role: approverRole || null,
+      approver_email: approverEmail,
+      approver_phone: approverPhone,
       status: "pending",
       expires_at: expiresAt,
+      access_validated: false,
     });
 
     if (error) {

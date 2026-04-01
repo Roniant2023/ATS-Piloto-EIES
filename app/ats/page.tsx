@@ -134,6 +134,14 @@ type ATSHistoryItem = {
   controls_count: number | null;
 };
 
+type ApproverOption = {
+  id: string;
+  name: string;
+  role: string;
+  email: string;
+  phone: string;
+};
+
 /* =========================
    UTILS
 ========================= */
@@ -543,6 +551,30 @@ const ACUERDOS_DE_VIDA = [
   "10_Salud pública",
 ] as const;
 
+const APPROVERS: ApproverOption[] = [
+  {
+    id: "aprobador-1",
+    name: "Carlos Pérez",
+    role: "Supervisor HSEQ",
+    email: "carlos.perez@empresa.com",
+    phone: "3001234567",
+  },
+  {
+    id: "aprobador-2",
+    name: "Lina Gómez",
+    role: "Coordinadora Operativa",
+    email: "lina.gomez@empresa.com",
+    phone: "3012345678",
+  },
+  {
+    id: "aprobador-3",
+    name: "Andrés Ruiz",
+    role: "Jefe de Base",
+    email: "andres.ruiz@empresa.com",
+    phone: "3023456789",
+  },
+];
+
 /* =========================
    COMPONENT
 ========================= */
@@ -636,7 +668,11 @@ export default function Page() {
   const [checkCommsAgreed, setCheckCommsAgreed] = useState<"SI" | "NO" | "N.A." | "">("");
   const [checkToolsOk, setCheckToolsOk] = useState<"SI" | "NO" | "N.A." | "">("");
 
+  const [selectedApproverId, setSelectedApproverId] = useState("");
   const [approverName, setApproverName] = useState("");
+  const [approverRole, setApproverRole] = useState("");
+  const [approverEmail, setApproverEmail] = useState("");
+  const [approverPhone, setApproverPhone] = useState("");
   const [approverSignature, setApproverSignature] = useState("");
 
   const lessonInputRef = useRef<HTMLInputElement | null>(null);
@@ -720,6 +756,21 @@ export default function Page() {
       return;
     }
 
+    if (!approverName.trim()) {
+      setUiError("Debes seleccionar un aprobador.");
+      return;
+    }
+
+    if (!approverEmail.trim()) {
+      setUiError("El aprobador seleccionado no tiene correo configurado.");
+      return;
+    }
+
+    if (!approverPhone.trim()) {
+      setUiError("El aprobador seleccionado no tiene celular configurado.");
+      return;
+    }
+
     setPreparingApproverLink(true);
 
     try {
@@ -731,6 +782,9 @@ export default function Page() {
         body: JSON.stringify({
           ats_id: savedAtsId,
           approver_name: approverName.trim(),
+          approver_role: approverRole.trim(),
+          approver_email: approverEmail.trim(),
+          approver_phone: approverPhone.trim(),
         }),
       });
 
@@ -789,7 +843,7 @@ export default function Page() {
       });
 
       const text = await res.text();
-      if (!res.ok) {
+if (!res.ok) {
         setUiError(`Error en /api/lesson-learned-brief (HTTP ${res.status}): ${text}`);
         return;
       }
@@ -820,6 +874,23 @@ export default function Page() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incidentsReference]);
+
+  useEffect(() => {
+    const selected = APPROVERS.find((a) => a.id === selectedApproverId);
+
+    if (!selected) {
+      setApproverName("");
+      setApproverRole("");
+      setApproverEmail("");
+      setApproverPhone("");
+      return;
+    }
+
+    setApproverName(selected.name);
+    setApproverRole(selected.role);
+    setApproverEmail(selected.email);
+    setApproverPhone(selected.phone);
+  }, [selectedApproverId]);
 
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -926,7 +997,9 @@ export default function Page() {
         freshAts?.estrella_format?.authorizations?.approver?.name || "";
 
       setApproverSignature(remoteApproverSignature || "");
-      setApproverName(remoteApproverName || "");
+      if (remoteApproverName) {
+        setApproverName(remoteApproverName || "");
+      }
 
       setUiInfo("✅ ATS refrescado con la firma remota del aprobador.");
     } catch (err: any) {
@@ -980,7 +1053,6 @@ export default function Page() {
     setOpenSteps({});
     setSavedAtsId(null);
     setApproverLink("");
-    setApproverName("");
     setApproverSignature("");
     setUiInfo("Archivos limpiados.");
     setUiError(null);
@@ -997,7 +1069,7 @@ export default function Page() {
       });
 
       const text = await res.text();
-if (!res.ok) {
+      if (!res.ok) {
         return {
           ok: false,
           fileName: file.name,
@@ -1093,6 +1165,10 @@ if (!res.ok) {
     if (!executionDateISO) reasons.push("Falta Fecha de ejecución (Formato Estrella).");
     if (!elaborationDateISO) reasons.push("Falta Fecha de elaboración (Formato Estrella).");
 
+    if (!selectedApproverId) reasons.push("Debes seleccionar un aprobador.");
+    if (!approverEmail.trim()) reasons.push("El aprobador seleccionado no tiene correo.");
+    if (!approverPhone.trim()) reasons.push("El aprobador seleccionado no tiene celular.");
+
     if (incidentsReference === "Si") {
       if (!lessonResult?.lesson_learned_brief) {
         reasons.push("Incidentes = Sí → Debes cargar y procesar una Lección aprendida (PDF/DOCX).");
@@ -1121,6 +1197,9 @@ if (!res.ok) {
     incidentsReference,
     lessonResult,
     lessonUploading,
+    selectedApproverId,
+    approverEmail,
+    approverPhone,
   ]);
 
   const canGenerateATS = useMemo(() => missingReasons.length === 0, [missingReasons]);
@@ -1185,6 +1264,9 @@ if (!res.ok) {
             },
             approver: {
               name: approverName.trim(),
+              role: approverRole.trim(),
+              email: approverEmail.trim(),
+              phone: approverPhone.trim(),
               signature: approverSignature,
             },
           },
@@ -1221,7 +1303,6 @@ if (!res.ok) {
       setAtsResult(ats);
       setSavedAtsId(null);
       setApproverLink("");
-      setApproverName("");
       setApproverSignature("");
       setUiInfo("✅ ATS generado correctamente.");
     } catch (err: any) {
@@ -1284,6 +1365,9 @@ if (!res.ok) {
             approver: {
               ...(atsResult?.estrella_format?.authorizations?.approver || {}),
               name: approverName.trim(),
+              role: approverRole.trim(),
+              email: approverEmail.trim(),
+              phone: approverPhone.trim(),
               signature: approverSignature,
             },
           },
@@ -1331,7 +1415,6 @@ if (!res.ok) {
       setAtsResult(atsToSave);
       setSavedAtsId(newId);
       setApproverLink("");
-      setApproverName("");
       setApproverSignature("");
 
       setUiInfo("✅ ATS guardado correctamente en Supabase.");
@@ -1475,8 +1558,7 @@ if (!res.ok) {
             className="border p-2 rounded md:col-span-2"
           />
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+<div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
           <div className="border rounded p-3">
             <div className="font-medium">Incidentes en trabajos similares</div>
             <div className="mt-2 flex gap-4">
@@ -1967,7 +2049,7 @@ if (!res.ok) {
               <li key={idx}>{m}</li>
             ))}
           </ul>
-          </section>
+        </section>
       )}
 
       <section className="no-print border rounded p-4 flex items-center gap-3">
@@ -2043,7 +2125,7 @@ if (!res.ok) {
             <div>
               <div className="text-sm text-neutral-600">Resumen ATS</div>
               <div className="text-lg font-semibold">{atsResult?.meta?.title || "ATS"}</div>
-<div className="text-sm text-neutral-700">
+              <div className="text-sm text-neutral-700">
                 {(atsResult?.meta?.company ? `${atsResult.meta.company} — ` : "") +
                   (atsResult?.meta?.location || "") +
                   (atsResult?.meta?.date ? ` — ${atsResult.meta.date}` : "") +
@@ -2687,13 +2769,46 @@ if (!res.ok) {
 
         <div className="border rounded p-3">
           <div className="font-medium">Aprobador del ATS</div>
+
           <div className="grid grid-cols-1 gap-2 mt-2">
-            <input
-              placeholder="Nombre"
-              value={approverName}
-              onChange={(e) => setApproverName(e.target.value)}
+            <label className="text-sm font-medium">Seleccionar aprobador</label>
+            <select
+              value={selectedApproverId}
+              onChange={(e) => setSelectedApproverId(e.target.value)}
               className="border p-2 rounded"
+            >
+              <option value="">Seleccione un aprobador</option>
+              {APPROVERS.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name} — {a.role}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-3">
+            <input
+              value={approverName}
+              readOnly
+              placeholder="Nombre"
+              className="border p-2 rounded bg-neutral-50"
             />
+            <input
+              value={approverEmail}
+              readOnly
+              placeholder="Correo"
+              className="border p-2 rounded bg-neutral-50"
+            />
+            <input
+              value={approverPhone}
+              readOnly
+              placeholder="Celular"
+              className="border p-2 rounded bg-neutral-50"
+            />
+          </div>
+
+          <div className="mt-2 text-xs text-neutral-600">
+            El aprobador seleccionado recibirá el enlace por WhatsApp y validará el acceso con OTP enviado a su correo.
           </div>
 
           <div className="mt-3 border rounded p-3 bg-neutral-50">

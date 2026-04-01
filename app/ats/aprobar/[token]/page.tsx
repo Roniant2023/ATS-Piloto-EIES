@@ -33,6 +33,11 @@ export default function ApprovalPage({
   const [atsPreview, setAtsPreview] = useState<any>(null);
   const [linkInfo, setLinkInfo] = useState<any>(null);
 
+  const [otp, setOtp] = useState("");
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [validatingOtp, setValidatingOtp] = useState(false);
+  const [otpValidated, setOtpValidated] = useState(false);
+
   useEffect(() => {
     let active = true;
 
@@ -73,6 +78,7 @@ export default function ApprovalPage({
         const atsJson = parsed?.ats_record?.ats_json || null;
         setAtsPreview(atsJson);
         setLinkInfo(parsed?.approval_link || null);
+        setOtpValidated(!!parsed?.approval_link?.access_validated);
 
         const suggestedApproverName =
           parsed?.approval_link?.approver_name ||
@@ -96,12 +102,110 @@ export default function ApprovalPage({
     };
   }, [params]);
 
+  async function handleSendOtp() {
+    setUiError(null);
+    setUiInfo(null);
+
+    if (!token) {
+      setUiError("Token inválido.");
+      return;
+    }
+
+    setSendingOtp(true);
+
+    try {
+      const res = await fetch("/api/send-approval-otp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token }),
+      });
+
+      const text = await res.text();
+      let parsed: any = null;
+
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = null;
+      }
+
+      if (!res.ok || !parsed?.ok) {
+        setUiError(parsed?.error || `Error enviando OTP (HTTP ${res.status}).`);
+        return;
+      }
+
+      setUiInfo("✅ Te enviamos un código de verificación al correo del aprobador.");
+    } catch (err: any) {
+      setUiError(String(err?.message || err));
+    } finally {
+      setSendingOtp(false);
+    }
+  }
+
+  async function handleValidateOtp() {
+    setUiError(null);
+    setUiInfo(null);
+
+    if (!token) {
+      setUiError("Token inválido.");
+      return;
+    }
+
+    if (!otp.trim()) {
+      setUiError("Debes ingresar el código OTP.");
+      return;
+    }
+
+    setValidatingOtp(true);
+
+    try {
+      const res = await fetch("/api/validate-approval-otp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          token,
+          otp: otp.trim(),
+        }),
+      });
+
+      const text = await res.text();
+      let parsed: any = null;
+
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = null;
+      }
+
+      if (!res.ok || !parsed?.ok) {
+        setUiError(parsed?.error || `Error validando OTP (HTTP ${res.status}).`);
+        return;
+      }
+
+      setOtpValidated(true);
+      setUiInfo("✅ Código validado correctamente. Ya puedes firmar.");
+    } catch (err: any) {
+      setUiError(String(err?.message || err));
+    } finally {
+      setValidatingOtp(false);
+    }
+  }
+
   async function handleApprove() {
     setUiError(null);
     setUiInfo(null);
 
     if (!token) {
       setUiError("Token inválido.");
+      return;
+    }
+
+    if (!otpValidated) {
+      setUiError("Primero debes validar el código OTP.");
       return;
     }
 
@@ -204,6 +308,49 @@ export default function ApprovalPage({
             </div>
           </div>
 
+          <div className="border rounded p-3 bg-blue-50">
+            <div className="font-medium mb-2">Validación de acceso</div>
+            <div className="text-sm text-neutral-700">
+              Para firmar este ATS primero debes validar un código OTP enviado al correo del aprobador.
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleSendOtp}
+                disabled={sendingOtp || otpValidated}
+                className="px-4 py-2 bg-black text-white rounded disabled:opacity-50"
+              >
+                {sendingOtp ? "Enviando OTP..." : otpValidated ? "OTP validado" : "Enviar OTP al correo"}
+              </button>
+            </div>
+
+            {!otpValidated && (
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
+                <input
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  placeholder="Ingrese el código OTP"
+                  className="border p-2 rounded"
+                />
+                <button
+                  type="button"
+                  onClick={handleValidateOtp}
+                  disabled={validatingOtp}
+                  className="px-4 py-2 border rounded disabled:opacity-50"
+                >
+                  {validatingOtp ? "Validando..." : "Validar OTP"}
+                </button>
+              </div>
+            )}
+
+            {otpValidated && (
+              <div className="mt-3 text-sm text-green-700 font-medium">
+                ✅ Acceso validado correctamente.
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="border rounded p-3 bg-neutral-50">
               <div className="font-medium mb-2">Peligros identificados</div>
@@ -272,7 +419,7 @@ export default function ApprovalPage({
         </section>
       ) : null}
 
-      {!done && !loadingPreview && atsPreview && (
+      {!done && !loadingPreview && atsPreview && otpValidated && (
         <section className="border rounded p-4 space-y-4 bg-white">
           <div>
             <label className="block text-sm font-medium mb-1">Nombre del aprobador</label>

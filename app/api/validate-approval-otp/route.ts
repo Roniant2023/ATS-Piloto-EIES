@@ -16,14 +16,22 @@ function getSupabaseAdmin() {
   });
 }
 
-export async function GET(req: Request) {
+export async function POST(req: Request) {
   try {
-    const { searchParams } = new URL(req.url);
-    const token = String(searchParams.get("token") || "").trim();
+    const body = await req.json();
+    const token = String(body?.token || "").trim();
+    const otp = String(body?.otp || "").trim();
 
     if (!token) {
       return NextResponse.json(
         { ok: false, error: "token es requerido." },
+        { status: 400 }
+      );
+    }
+
+    if (!otp) {
+      return NextResponse.json(
+        { ok: false, error: "otp es requerido." },
         { status: 400 }
       );
     }
@@ -52,66 +60,59 @@ export async function GET(req: Request) {
 
     if (linkRow.status === "signed") {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Este link ya fue utilizado para aprobar el ATS.",
-          approval_link: linkRow,
-        },
+        { ok: false, error: "Este link ya fue utilizado." },
         { status: 400 }
       );
     }
 
     if (linkRow.expires_at && new Date(linkRow.expires_at).getTime() < Date.now()) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "El link de aprobación ha expirado.",
-          approval_link: linkRow,
-        },
+        { ok: false, error: "El link expiró." },
         { status: 400 }
       );
     }
 
-    const { data: atsRow, error: atsError } = await supabase
-      .from("ats_records")
-      .select("*")
-      .eq("id", linkRow.ats_id)
-      .maybeSingle();
-
-    if (atsError) {
+    if (!linkRow.otp_code) {
       return NextResponse.json(
-        { ok: false, error: atsError.message },
+        { ok: false, error: "No hay OTP generado para este link." },
+        { status: 400 }
+      );
+    }
+
+    if (!linkRow.otp_expires_at || new Date(linkRow.otp_expires_at).getTime() < Date.now()) {
+      return NextResponse.json(
+        { ok: false, error: "El OTP expiró. Solicita uno nuevo." },
+        { status: 400 }
+      );
+    }
+
+    if (String(linkRow.otp_code).trim() !== otp) {
+      return NextResponse.json(
+        { ok: false, error: "OTP incorrecto." },
+        { status: 400 }
+      );
+    }
+
+    const { error: updateError } = await supabase
+      .from("ats_approval_links")
+      .update({
+        access_validated: true,
+        otp_code: null,
+        otp_expires_at: null,
+      })
+      .eq("id", linkRow.id);
+
+    if (updateError) {
+      return NextResponse.json(
+        { ok: false, error: updateError.message },
         { status: 500 }
       );
     }
 
-    if (!atsRow) {
-      return NextResponse.json(
-        { ok: false, error: "ATS asociado no encontrado." },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json(
-      {
-        ok: true,
-        approval_link: {
-          id: linkRow.id,
-          ats_id: linkRow.ats_id,
-          token: linkRow.token,
-          status: linkRow.status,
-          expires_at: linkRow.expires_at,
-          signed_at: linkRow.signed_at ?? null,
-          access_validated: linkRow.access_validated ?? false,
-          approver_name: linkRow.approver_name ?? "",
-          approver_role: linkRow.approver_role ?? "",
-          approver_email: linkRow.approver_email ?? "",
-          approver_phone: linkRow.approver_phone ?? "",
-        },
-        ats_record: atsRow,
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({
+      ok: true,
+      message: "OTP validado correctamente.",
+    });
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: String(err?.message || err) },
