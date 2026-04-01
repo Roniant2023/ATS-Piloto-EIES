@@ -61,7 +61,15 @@ export async function POST(req: Request) {
 
     const appUrl =
       process.env.NEXT_PUBLIC_APP_URL ||
-      process.env.NEXT_PUBLIC_VERCEL_URL;
+      process.env.NEXT_PUBLIC_VERCEL_URL ||
+      "";
+
+    if (!appUrl) {
+      return NextResponse.json(
+        { ok: false, error: "Falta NEXT_PUBLIC_APP_URL." },
+        { status: 500 }
+      );
+    }
 
     const baseUrl = appUrl.startsWith("http")
       ? appUrl
@@ -100,7 +108,6 @@ export async function POST(req: Request) {
       ok: true,
       message: "Link enviado al correo del aprobador",
     });
-
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err.message },
