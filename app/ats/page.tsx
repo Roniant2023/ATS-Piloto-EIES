@@ -553,38 +553,10 @@ const ACUERDOS_DE_VIDA = [
 
 const APPROVERS: ApproverOption[] = [
   {
-    id: "aprobador-1",
-    name: "Maria Elvira Ardila",
-    role: "Coord op cementación",
-    email: "mardila@estrellaies.com",
-    phone: "3102400354",
-  },
-  {
-    id: "aprobador-2",
-    name: "Mauricio Rodriguez",
-    role: "Coord op coiled tubing",
-    email: "marodriguez@estrellaies.com",
-    phone: "3164903050",
-  },
-  {
-    id: "aprobador-3",
-    name: "Juan Carlos Zapata",
-    role: "Coord ingeniería",
-    email: "jzapata@estrellaies.com",
-    phone: "3202753752",
-  },
-{
-    id: "aprobador-4",
-    name: "Andrés Villa",
-    role: "Gerente well services",
-    email: "avilla@estrellaies.com",
-    phone: "3202753777",
-  },
-{
-    id: "aprobador-5",
+    id: "test-test",
     name: "TEST",
     role: "TEST",
-    email: "rrodriguez@estrellaies.com",
+    email: "rodriguez@estrellaies.com",
     phone: "3212551148",
   },
 ];
@@ -631,6 +603,7 @@ export default function Page() {
   const [savedAtsId, setSavedAtsId] = useState<string | null>(null);
   const [approverLink, setApproverLink] = useState("");
   const [preparingApproverLink, setPreparingApproverLink] = useState(false);
+  const [sendingApprovalEmail, setSendingApprovalEmail] = useState(false);
 
   const [uiError, setUiError] = useState<string | null>(null);
   const [uiInfo, setUiInfo] = useState<string | null>(null);
@@ -739,6 +712,7 @@ export default function Page() {
     if (!approverLink) return;
 
     try {
+      const phone = approverPhone.replace(/\D/g, "");
       const approver = approverName.trim() || "Aprobador";
       const atsName = jobTitle.trim() || atsResult?.meta?.title || "ATS";
 
@@ -747,7 +721,10 @@ export default function Page() {
         `Actividad: ${atsName}\n` +
         `Link de aprobación: ${approverLink}`;
 
-      const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+      const whatsappUrl = phone
+        ? `https://wa.me/57${phone}?text=${encodeURIComponent(message)}`
+        : `https://wa.me/?text=${encodeURIComponent(message)}`;
+
       window.open(whatsappUrl, "_blank", "noopener,noreferrer");
 
       setUiInfo("📲 Se abrió WhatsApp para compartir el link de aprobación.");
@@ -756,7 +733,36 @@ export default function Page() {
     }
   }
 
-  async function handlePrepareApproverLink() {
+  async function sendApprovalLinkByEmail(token: string) {
+    setSendingApprovalEmail(true);
+
+    try {
+      const res = await fetch("/api/send-approval-link", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token }),
+      });
+
+      const text = await res.text();
+      const parsed = safeJsonParse<any>(text);
+
+      if (!res.ok || !parsed.ok || !parsed.value?.ok) {
+        setUiError(`No se pudo enviar el link al correo del aprobador: ${text}`);
+        return false;
+      }
+
+      setUiInfo("✅ Link enviado al correo del aprobador.");
+      return true;
+    } catch (err: any) {
+      setUiError(`Excepción enviando link por correo: ${String(err?.message || err)}`);
+      return false;
+    } finally {
+      setSendingApprovalEmail(false);
+    }
+  }
+async function handlePrepareApproverLink() {
     setUiError(null);
     setUiInfo(null);
 
@@ -821,13 +827,27 @@ export default function Page() {
         parsed.value?.link ||
         "";
 
+      const token =
+        parsed.value?.token ||
+        "";
+
       if (!link) {
         setUiError("La respuesta no trajo un link de aprobación.");
         return;
       }
 
       setApproverLink(link);
-      setUiInfo("✅ Link de aprobación generado correctamente.");
+
+      if (token) {
+        const emailSent = await sendApprovalLinkByEmail(token);
+        if (emailSent) {
+          setUiInfo("✅ Link de aprobación generado y enviado al correo del aprobador.");
+        } else {
+          setUiInfo("✅ Link de aprobación generado correctamente.");
+        }
+      } else {
+        setUiInfo("✅ Link de aprobación generado correctamente.");
+      }
     } catch (err: any) {
       setUiError(`Excepción generando link de aprobación: ${String(err?.message || err)}`);
     } finally {
@@ -857,7 +877,7 @@ export default function Page() {
       });
 
       const text = await res.text();
-if (!res.ok) {
+      if (!res.ok) {
         setUiError(`Error en /api/lesson-learned-brief (HTTP ${res.status}): ${text}`);
         return;
       }
@@ -2824,7 +2844,7 @@ if (!res.ok) {
             </div>
 
             <div className="mt-2 text-xs text-neutral-600">
-              El aprobador seleccionado recibirá el enlace por WhatsApp y validará el acceso con OTP enviado a su correo.
+              El aprobador seleccionado recibirá el enlace por correo y también podrás compartirlo por WhatsApp.
             </div>
 
             <div className="mt-3 border rounded p-3 bg-neutral-50">
@@ -2854,10 +2874,14 @@ if (!res.ok) {
             <button
               type="button"
               onClick={handlePrepareApproverLink}
-              disabled={preparingApproverLink}
+              disabled={preparingApproverLink || sendingApprovalEmail}
               className="px-4 py-2 bg-black text-white rounded disabled:opacity-50"
             >
-              {preparingApproverLink ? "Generando link..." : "Generar link para aprobador"}
+              {preparingApproverLink
+                ? "Generando link..."
+                : sendingApprovalEmail
+                ? "Enviando correo..."
+                : "Generar link para aprobador"}
             </button>
 
             <button
