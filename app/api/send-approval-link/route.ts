@@ -97,9 +97,24 @@ export async function POST(req: Request) {
       `,
     });
 
+    console.log("RESEND RESPONSE:", JSON.stringify(emailRes, null, 2));
+
     if ((emailRes as any)?.error) {
+      const detailedError =
+        (emailRes as any)?.error?.message ||
+        (emailRes as any)?.error?.name ||
+        JSON.stringify((emailRes as any)?.error) ||
+        JSON.stringify(emailRes) ||
+        "Error enviando correo";
+
+      console.error("RESEND ERROR DETAIL:", detailedError);
+
       return NextResponse.json(
-        { ok: false, error: "Error enviando correo" },
+        {
+          ok: false,
+          error: detailedError,
+          raw: emailRes,
+        },
         { status: 500 }
       );
     }
@@ -107,10 +122,13 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       message: "Link enviado al correo del aprobador",
+      resend_response: emailRes,
     });
   } catch (err: any) {
+    console.error("SEND APPROVAL LINK EXCEPTION:", err);
+
     return NextResponse.json(
-      { ok: false, error: err.message },
+      { ok: false, error: err?.message || String(err) },
       { status: 500 }
     );
   }
