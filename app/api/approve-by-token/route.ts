@@ -103,6 +103,8 @@ export async function POST(req: Request) {
     const ats = atsRow.ats_json || {};
     const estrella = ats?.estrella_format || {};
     const authorizations = estrella?.authorizations || {};
+    const currentApprover = authorizations?.approver || {};
+    const signedAt = new Date().toISOString();
 
     const updatedAts = {
       ...ats,
@@ -111,14 +113,26 @@ export async function POST(req: Request) {
         authorizations: {
           ...authorizations,
           approver: {
-            ...(authorizations?.approver || {}),
+            ...currentApprover,
             name:
               approverName ||
-              authorizations?.approver?.name ||
+              currentApprover?.name ||
               linkRow?.approver_name ||
               "",
+            role:
+              currentApprover?.role ||
+              linkRow?.approver_role ||
+              "",
+            email:
+              currentApprover?.email ||
+              linkRow?.approver_email ||
+              "",
+            phone:
+              currentApprover?.phone ||
+              linkRow?.approver_phone ||
+              "",
             signature: approverSignature,
-            signedAt: new Date().toISOString(),
+            signedAt,
           },
         },
       },
@@ -142,9 +156,10 @@ export async function POST(req: Request) {
       .from("ats_approval_links")
       .update({
         status: "signed",
-        signed_at: new Date().toISOString(),
+        signed_at: signedAt,
         otp_code: null,
         otp_expires_at: null,
+        access_validated: false,
       })
       .eq("id", linkRow.id);
 
@@ -155,11 +170,30 @@ export async function POST(req: Request) {
       );
     }
 
+    console.log(
+      "ATS APPROVED OK:",
+      JSON.stringify(
+        {
+          ats_id: atsRow.id,
+          token,
+          approver_name:
+            updatedAts?.estrella_format?.authorizations?.approver?.name || "",
+          has_signature: !!updatedAts?.estrella_format?.authorizations?.approver?.signature,
+        },
+        null,
+        2
+      )
+    );
+
     return NextResponse.json({
       ok: true,
       message: "ATS aprobado correctamente.",
+      ats_id: atsRow.id,
+      ats_json: updatedAts,
     });
   } catch (err: any) {
+    console.error("APPROVE BY TOKEN ERROR:", err);
+
     return NextResponse.json(
       { ok: false, error: String(err?.message || err) },
       { status: 500 }
