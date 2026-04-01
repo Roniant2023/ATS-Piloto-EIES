@@ -1165,10 +1165,6 @@ if (!res.ok) {
     if (!executionDateISO) reasons.push("Falta Fecha de ejecución (Formato Estrella).");
     if (!elaborationDateISO) reasons.push("Falta Fecha de elaboración (Formato Estrella).");
 
-    if (!selectedApproverId) reasons.push("Debes seleccionar un aprobador.");
-    if (!approverEmail.trim()) reasons.push("El aprobador seleccionado no tiene correo.");
-    if (!approverPhone.trim()) reasons.push("El aprobador seleccionado no tiene celular.");
-
     if (incidentsReference === "Si") {
       if (!lessonResult?.lesson_learned_brief) {
         reasons.push("Incidentes = Sí → Debes cargar y procesar una Lección aprendida (PDF/DOCX).");
@@ -1197,9 +1193,6 @@ if (!res.ok) {
     incidentsReference,
     lessonResult,
     lessonUploading,
-    selectedApproverId,
-    approverEmail,
-    approverPhone,
   ]);
 
   const canGenerateATS = useMemo(() => missingReasons.length === 0, [missingReasons]);
@@ -2766,80 +2759,81 @@ if (!res.ok) {
             ))}
           </div>
         </div>
-
-        <div className="border rounded p-3">
-          <div className="font-medium">Aprobador del ATS</div>
-
-          <div className="grid grid-cols-1 gap-2 mt-2">
-            <label className="text-sm font-medium">Seleccionar aprobador</label>
-            <select
-              value={selectedApproverId}
-              onChange={(e) => setSelectedApproverId(e.target.value)}
-              className="border p-2 rounded"
-            >
-              <option value="">Seleccione un aprobador</option>
-              {APPROVERS.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} — {a.role}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-3">
-            <input
-              value={approverName}
-              readOnly
-              placeholder="Nombre"
-              className="border p-2 rounded bg-neutral-50"
-            />
-            <input
-              value={approverEmail}
-              readOnly
-              placeholder="Correo"
-              className="border p-2 rounded bg-neutral-50"
-            />
-            <input
-              value={approverPhone}
-              readOnly
-              placeholder="Celular"
-              className="border p-2 rounded bg-neutral-50"
-            />
-          </div>
-
-          <div className="mt-2 text-xs text-neutral-600">
-            El aprobador seleccionado recibirá el enlace por WhatsApp y validará el acceso con OTP enviado a su correo.
-          </div>
-
-          <div className="mt-3 border rounded p-3 bg-neutral-50">
-            <div className="text-sm font-medium">Firma del aprobador</div>
-            <div className="text-sm text-neutral-600 mt-1">
-              La firma del aprobador se realiza únicamente desde el link de aprobación remota.
-            </div>
-
-            {approverSignature ? (
-              <div className="mt-3 border rounded p-2 bg-white">
-                <div className="text-xs text-neutral-600 mb-2">Firma registrada</div>
-                <img
-                  src={approverSignature}
-                  alt="Firma del aprobador"
-                  className="max-h-[100px] w-auto object-contain"
-                />
-              </div>
-            ) : (
-              <div className="mt-3 text-xs text-neutral-500">
-                Aún no se ha registrado la firma remota del aprobador.
-              </div>
-            )}
-          </div>
-        </div>
       </section>
 
       {savedAtsId && supervisorSignature && (
-        <section className="no-print border rounded p-4 space-y-3 bg-blue-50 border-blue-200">
+        <section className="no-print border rounded p-4 space-y-4 bg-blue-50 border-blue-200">
           <div className="font-semibold">Aprobación remota</div>
           <div className="text-sm text-neutral-700">
-            Después de guardar y firmar como supervisor, puedes generar un link para que el aprobador firme desde otro dispositivo o ubicación.
+            Después de guardar y firmar como supervisor, puedes seleccionar el aprobador y generar
+            el link para aprobación remota.
+          </div>
+
+          <div className="border rounded p-3 bg-white">
+            <div className="font-medium">Aprobador del ATS</div>
+
+            <div className="grid grid-cols-1 gap-2 mt-2">
+              <label className="text-sm font-medium">Seleccionar aprobador</label>
+              <select
+                value={selectedApproverId}
+                onChange={(e) => setSelectedApproverId(e.target.value)}
+                className="border p-2 rounded"
+              >
+                <option value="">Seleccione un aprobador</option>
+                {APPROVERS.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} — {a.role}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-3">
+              <input
+                value={approverName}
+                readOnly
+                placeholder="Nombre"
+                className="border p-2 rounded bg-neutral-50"
+              />
+              <input
+                value={approverEmail}
+                readOnly
+                placeholder="Correo"
+                className="border p-2 rounded bg-neutral-50"
+              />
+              <input
+                value={approverPhone}
+                readOnly
+                placeholder="Celular"
+                className="border p-2 rounded bg-neutral-50"
+              />
+            </div>
+
+            <div className="mt-2 text-xs text-neutral-600">
+              El aprobador seleccionado recibirá el enlace por WhatsApp y validará el acceso con OTP enviado a su correo.
+            </div>
+
+            <div className="mt-3 border rounded p-3 bg-neutral-50">
+              <div className="text-sm font-medium">Firma del aprobador</div>
+              <div className="text-sm text-neutral-600 mt-1">
+                La firma del aprobador se realiza únicamente desde el link de aprobación remota.
+              </div>
+
+              {approverSignature ? (
+                <div className="mt-3 border rounded p-2 bg-white">
+                  <div className="text-xs text-neutral-600 mb-2">Firma registrada</div>
+                  <img
+                    src={approverSignature}
+                    alt="Firma del aprobador"
+                    className="max-h-[100px] w-auto object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="mt-3 text-xs text-neutral-500">
+                  Aún no se ha registrado la firma remota del aprobador.
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
