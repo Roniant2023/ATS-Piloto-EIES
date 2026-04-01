@@ -605,6 +605,10 @@ export default function Page() {
   const [preparingApproverLink, setPreparingApproverLink] = useState(false);
   const [sendingApprovalEmail, setSendingApprovalEmail] = useState(false);
 
+  const [emailUnlockPassword, setEmailUnlockPassword] = useState("");
+  const [emailUnlocked, setEmailUnlocked] = useState(false);
+  const [emailUnlockError, setEmailUnlockError] = useState<string | null>(null);
+
   const [uiError, setUiError] = useState<string | null>(null);
   const [uiInfo, setUiInfo] = useState<string | null>(null);
 
@@ -695,6 +699,27 @@ export default function Page() {
     setAdminUnlocked(true);
     setAdminAuthError(null);
     setUiInfo("🔒 Acceso autorizado a historial y estadísticas.");
+  }
+
+  function handleUnlockEmailSending() {
+    setEmailUnlockError(null);
+
+    const expected = process.env.NEXT_PUBLIC_ATS_EMAIL_UNLOCK_PASSWORD;
+
+    if (!expected) {
+      setEmailUnlockError("No se configuró la clave de envío por correo.");
+      return;
+    }
+
+    if (emailUnlockPassword.trim() !== expected) {
+      setEmailUnlockError("Clave incorrecta.");
+      setEmailUnlocked(false);
+      return;
+    }
+
+    setEmailUnlocked(true);
+    setEmailUnlockError(null);
+    setUiInfo("📧 Envío por correo habilitado.");
   }
 
   async function copyApproverLink() {
@@ -827,27 +852,13 @@ async function handlePrepareApproverLink() {
         parsed.value?.link ||
         "";
 
-      const token =
-        parsed.value?.token ||
-        "";
-
       if (!link) {
         setUiError("La respuesta no trajo un link de aprobación.");
         return;
       }
 
       setApproverLink(link);
-
-      if (token) {
-        const emailSent = await sendApprovalLinkByEmail(token);
-        if (emailSent) {
-          setUiInfo("✅ Link de aprobación generado y enviado al correo del aprobador.");
-        } else {
-          setUiInfo("✅ Link de aprobación generado correctamente.");
-        }
-      } else {
-        setUiInfo("✅ Link de aprobación generado correctamente.");
-      }
+      setUiInfo("✅ Link de aprobación generado correctamente.");
     } catch (err: any) {
       setUiError(`Excepción generando link de aprobación: ${String(err?.message || err)}`);
     } finally {
@@ -2844,7 +2855,7 @@ async function handlePrepareApproverLink() {
             </div>
 
             <div className="mt-2 text-xs text-neutral-600">
-              El aprobador seleccionado recibirá el enlace por correo y también podrás compartirlo por WhatsApp.
+              El envío principal para operación en campo es por WhatsApp.
             </div>
 
             <div className="mt-3 border rounded p-3 bg-neutral-50">
@@ -2874,14 +2885,10 @@ async function handlePrepareApproverLink() {
             <button
               type="button"
               onClick={handlePrepareApproverLink}
-              disabled={preparingApproverLink || sendingApprovalEmail}
+              disabled={preparingApproverLink}
               className="px-4 py-2 bg-black text-white rounded disabled:opacity-50"
             >
-              {preparingApproverLink
-                ? "Generando link..."
-                : sendingApprovalEmail
-                ? "Enviando correo..."
-                : "Generar link para aprobador"}
+              {preparingApproverLink ? "Generando link..." : "Generar link para aprobador"}
             </button>
 
             <button
@@ -2910,6 +2917,71 @@ async function handlePrepareApproverLink() {
             >
               Refrescar ATS
             </button>
+          </div>
+
+          <div className="border rounded p-3 bg-white space-y-3">
+            <div className="font-medium text-sm">Envío por correo restringido</div>
+            <div className="text-xs text-neutral-600">
+              Esta opción está oculta para uso administrativo.
+            </div>
+
+            {!emailUnlocked ? (
+              <div className="flex flex-col md:flex-row gap-2 md:items-center">
+                <input
+                  type="password"
+                  placeholder="Ingrese clave"
+                  value={emailUnlockPassword}
+                  onChange={(e) => setEmailUnlockPassword(e.target.value)}
+                  className="border p-2 rounded md:w-[260px]"
+                />
+                <button
+                  type="button"
+                  onClick={handleUnlockEmailSending}
+                  className="px-4 py-2 border rounded"
+                >
+                  Habilitar correo
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="text-green-700 text-sm font-medium">
+                  ✅ Envío por correo habilitado
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmailUnlocked(false);
+                    setEmailUnlockPassword("");
+                    setEmailUnlockError(null);
+                  }}
+                  className="px-3 py-2 border rounded text-sm"
+                >
+                  Ocultar nuevamente
+                </button>
+              </div>
+            )}
+
+            {emailUnlockError && (
+              <div className="text-sm text-red-700">{emailUnlockError}</div>
+            )}
+
+            {emailUnlocked && approverLink && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const token = approverLink.split("/").pop() || "";
+                  if (!token) {
+                    setUiError("No se encontró token para enviar el correo.");
+                    return;
+                  }
+                  await sendApprovalLinkByEmail(token);
+                }}
+                disabled={sendingApprovalEmail}
+                className="px-4 py-2 border rounded disabled:opacity-50"
+              >
+                {sendingApprovalEmail ? "Enviando correo..." : "Enviar link por correo"}
+              </button>
+            )}
           </div>
 
           {approverLink && (
