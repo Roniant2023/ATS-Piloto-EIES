@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useReactToPrint } from "react-to-print";
-import SignaturePadField from "../../components/SignaturePadField";
+import SignaturePadField from "../components/SignaturePadField";
 
 type ProcedureRef = {
   file_name?: string;
