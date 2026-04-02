@@ -387,7 +387,7 @@ export default function ATSPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lessonInputRef = useRef<HTMLInputElement>(null);
 
-  const companyLogoSrc = "/logo.png";
+  const companyLogoSrc = "/logo-eies.png";
 
   function toggleStep(i: number) {
     setOpenSteps((prev) => ({ ...prev, [i]: !prev[i] }));
