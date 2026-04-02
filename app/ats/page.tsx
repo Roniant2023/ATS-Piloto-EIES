@@ -301,7 +301,7 @@ export default function ATSPage() {
 
   const [atsNumber, setAtsNumber] = useState("");
   const [permitNumber, setPermitNumber] = useState("");
-  const [formatVersion, setFormatVersion] = useState("07");
+  const [formatVersion, setFormatVersion] = useState("");
   const [elaborationDateISO, setElaborationDateISO] = useState("");
   const [executionDateISO, setExecutionDateISO] = useState("");
   const [workFront, setWorkFront] = useState("");
