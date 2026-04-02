@@ -1,23 +1,18 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 import { useReactToPrint } from "react-to-print";
 import SignaturePadField from "../components/SignaturePadField";
 
+/* =========================
+   TIPOS
+========================= */
 type ProcedureRef = {
-  file_name?: string;
-  procedure_name?: string;
-  procedure_code?: string;
-  procedure_version?: string;
-  procedure_date?: string;
-  procedure_type?: string;
-  summary?: string;
-  critical_controls?: string[];
-  ppe?: string[];
-  tools?: string[];
-  materials?: string[];
-  hazards?: string[];
-  extracted_text?: string;
+  title?: string;
+  code?: string;
+  origin?: string;
+  parseable?: boolean;
+  [key: string]: any;
 };
 
 type ProcedureResult = {
@@ -28,64 +23,118 @@ type ProcedureResult = {
   details?: string;
 };
 
-type ATSProcedureMini = {
-  file_name?: string;
-  procedure_name?: string;
-  procedure_code?: string;
-  procedure_version?: string;
-  procedure_type?: string;
+type Environment = {
+  timeOfDay?: string | null;
+  weather?: string | null;
+  temperatureC?: number | null;
+  humidityPct?: number | null;
+  wind?: string | null;
+  lighting?: string | null;
+  terrain?: string | null;
+  visibility?: string | null;
+};
+
+type ATSStopWork = {
+  decision: "STOP" | "CONTINUE" | "REVIEW_REQUIRED";
+  auto_triggers: string[];
+  criteria: string[];
+  rationale: string;
+};
+
+type ATSProcedureMini = { title: string; code: string; origin: string };
+
+type ATSProcedureInfluence = {
+  applied: ATSProcedureMini[];
+  not_parseable: ATSProcedureMini[];
+  derived_controls: Array<{
+    level: "engineering" | "administrative" | "ppe";
+    control: string;
+    source: ATSProcedureMini;
+  }>;
+};
+
+type ATSChecklistDecisionHint = "STOP" | "REVIEW_REQUIRED" | "CONTINUE";
+
+type ATSChecklistAction = {
+  priority: "critical" | "high" | "medium" | "low";
+  category: "administrative" | "engineering" | "ppe";
+  action: string;
+  evidence: string[];
 };
 
 type ATSChecklistActions = {
-  status?: "STOP" | "REVIEW_REQUIRED" | "CONTINUE";
-  reasons?: string[];
-  required_actions?: string[];
+  decision_hint: ATSChecklistDecisionHint;
+  missing: string[];
+  critical_fails: string[];
+  derived_controls: {
+    engineering: string[];
+    administrative: string[];
+    ppe: string[];
+  };
+  actions: ATSChecklistAction[];
+  snapshot: any;
 };
 
 type ATS = {
-  meta?: {
-    title?: string;
-    company?: string;
-    location?: string;
-    date?: string;
-    shift?: string;
+  meta: {
+    title: string;
+    company: string;
+    location: string;
+    date: string;
+    shift: string;
   };
-  hazards?: string[];
-  controls?: {
-    engineering?: string[];
-    administrative?: string[];
-    ppe?: string[];
+  environment: any;
+  hazards: string[];
+  controls: {
+    engineering: string[];
+    administrative: string[];
+    ppe: string[];
   };
-  steps?: {
-    step: string;
-    hazards: string[];
-    controls: string[];
-  }[];
-  stop_work?: {
-    decision?: string;
-    rationale?: string;
-  };
+  steps: Array<{ step: string; hazards: string[]; controls: string[] }>;
+  stop_work: ATSStopWork;
+  procedure_refs_used: ATSProcedureMini[];
+  procedure_influence: ATSProcedureInfluence;
   checklist_actions?: ATSChecklistActions;
-  procedure_influence?: {
-    applied?: ATSProcedureMini[];
-    not_parseable?: ATSProcedureMini[];
+};
+
+type LessonLearnedBrief = {
+  title: string;
+  code: string;
+  origin: string;
+  parseable: boolean;
+  brief: {
+    scope: string;
+    mandatory_permits: string[];
+    critical_controls: {
+      engineering: string[];
+      administrative: string[];
+      ppe: string[];
+    };
+    stop_work: string[];
+    mandatory_steps: string[];
+    restrictions: string[];
   };
-  procedure_refs_used?: ATSProcedureMini[];
-  estrella_format?: any;
 };
 
-type AtsHistoryItem = {
+type LessonLearnedApiResponse = {
+  lesson: any;
+  lesson_learned_brief: LessonLearnedBrief;
+};
+
+type ATSHistoryItem = {
   id: string;
-  created_at?: string;
-  job_title?: string;
-  company?: string;
-  location?: string;
-  stop_work_decision?: string;
-  hazards_count?: number;
-  controls_count?: number;
+  created_at: string;
+  job_title: string | null;
+  company: string | null;
+  location: string | null;
+  work_date: string | null;
+  shift: string | null;
+  stop_work_decision: string | null;
+  hazards_count: number | null;
+  controls_count: number | null;
 };
 
-type Approver = {
+type ApproverOption = {
   id: string;
   name: string;
   role: string;
@@ -93,87 +142,83 @@ type Approver = {
   phone: string;
 };
 
-const APPROVERS: Approver[] = [
-  {
-    id: "test-test",
-    name: "TEST",
-    role: "TEST",
-    email: "roniant@hotmail.com",
-    phone: "3212551148",
-  },
-];
+/* =========================
+   UTILS
+========================= */
+function clsx(...parts: Array<string | false | null | undefined>) {
+  return parts.filter(Boolean).join(" ");
+}
 
-const PELIGROS_TIPOS = [
-  "Locativos",
-  "Mecánicos",
-  "Eléctricos",
-  "Químicos",
-  "Biomecánicos",
-  "Físicos",
-  "Biológicos",
-  "Públicos",
-  "Fenómenos naturales",
-  "Psicosociales",
-  "Otros",
-];
+function formatDateEsCOFromISO(iso: string): string {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
+}
 
-const PELIGROS_ENTORNO = [
-  "Vías",
-  "Tránsito vehicular",
-  "Terreno irregular",
-  "Vegetación",
-  "Animales",
-  "Condiciones climáticas",
-  "Redes energizadas",
-  "Espacios reducidos",
-  "Otros",
-];
+function cleanString(v: any): string | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  return s.length ? s : null;
+}
 
-const EMERGENCIAS = [
-  "Incendio",
-  "Explosión",
-  "Derrame",
-  "Lesión personal",
-  "Fuga",
-  "Caída de objetos",
-  "Tormenta eléctrica",
-  "Emergencia médica",
-];
+function cleanNumber(v: any): number | null {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
-const EQUIPO_SEGURIDAD = [
-  "Extintor",
-  "Botiquín",
-  "Camilla",
-  "Kit de derrames",
-  "Radio / medio de comunicación",
-  "Detector de gases",
-  "Línea de vida",
-  "Arnés",
-  "Otros",
-];
+function sanitizeEnvironment(env: Environment): Environment {
+  return {
+    timeOfDay: cleanString(env.timeOfDay),
+    weather: cleanString(env.weather),
+    wind: cleanString(env.wind),
+    lighting: cleanString(env.lighting),
+    terrain: cleanString(env.terrain),
+    visibility: cleanString(env.visibility),
+    temperatureC: cleanNumber(env.temperatureC),
+    humidityPct: cleanNumber(env.humidityPct),
+  };
+}
 
-const ACUERDOS_DE_VIDA = [
-  "Trabajo en alturas",
-  "Espacios confinados",
-  "Aislamiento de energías",
-  "Excavaciones",
-  "Izaje de cargas",
-  "Trabajo en caliente",
-  "Manejo de químicos",
-  "Conducción segura",
-  "Líneas de fuego",
-  "Equipos móviles",
-];
+function isPdfOrDocx(file: File) {
+  const name = file.name.toLowerCase();
+  return name.endsWith(".pdf") || name.endsWith(".docx");
+}
 
-const EMAIL_UNLOCK_PASSWORD =
-  process.env.NEXT_PUBLIC_ATS_EMAIL_UNLOCK_PASSWORD || "";
+function fileKey(f: File) {
+  return `${f.name}__${f.size}`;
+}
 
-function safeJsonParse<T = any>(raw: string): { ok: true; value: T } | { ok: false; error: string } {
+function safeJsonParse<T = any>(
+  text: string
+): { ok: true; value: T } | { ok: false; error: string } {
   try {
-    return { ok: true, value: JSON.parse(raw) as T };
-  } catch (err: any) {
-    return { ok: false, error: String(err?.message || err) };
+    return { ok: true, value: JSON.parse(text) };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
   }
+}
+
+function badgeForDecision(decision?: string) {
+  if (decision === "STOP") return { label: "STOP WORK", cls: "bg-red-600 text-white" };
+  if (decision === "REVIEW_REQUIRED") {
+    return { label: "REVISIÓN REQUERIDA", cls: "bg-amber-500 text-black" };
+  }
+  return { label: "CONTINUAR", cls: "bg-green-600 text-white" };
+}
+
+function sectionColorForDecision(decision?: string) {
+  if (decision === "STOP") return "border-red-300 bg-red-50";
+  if (decision === "REVIEW_REQUIRED") return "border-amber-300 bg-amber-50";
+  return "border-green-300 bg-green-50";
+}
+
+function miniLabel(p: { title?: string; code?: string; origin?: string }) {
+  const t = (p.title || "Procedimiento").trim();
+  const c = (p.code || "").trim();
+  const o = (p.origin || "").trim();
+  return `${t}${c ? ` (${c})` : ""}${o ? ` — ${o}` : ""}`;
 }
 
 function uniqueNonEmpty(arr: any): string[] {
@@ -190,136 +235,346 @@ function uniqueNonEmpty(arr: any): string[] {
   return out;
 }
 
-function toggleInArray(arr: string[], value: string) {
-  return arr.includes(value) ? arr.filter((x) => x !== value) : [...arr, value];
+function toggleInArray(list: string[], value: string) {
+  const exists = list.includes(value);
+  return exists ? list.filter((x) => x !== value) : [...list, value];
 }
 
-function isPdfOrDocx(file: File) {
-  const name = file.name.toLowerCase();
-  return (
-    name.endsWith(".pdf") ||
-    name.endsWith(".docx") ||
-    file.type === "application/pdf" ||
-    file.type ===
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-  );
-}
-
-function fileKey(file: File) {
-  return `${file.name}_${file.size}_${file.lastModified}`;
-}
-
-function formatDateEsCOFromISO(iso?: string | null) {
-  if (!iso) return "";
-  const d = new Date(`${iso}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("es-CO");
-}
-
-function miniLabel(p?: ATSProcedureMini | null) {
-  if (!p) return "Documento";
-  const name = p.procedure_name || p.file_name || "Documento";
-  const code = p.procedure_code ? ` (${p.procedure_code})` : "";
-  return `${name}${code}`;
-}
-
-function sanitizeEnvironment(env: any) {
-  return {
-    timeOfDay: env?.timeOfDay || null,
-    weather: env?.weather || null,
-    temperatureC: env?.temperatureC ?? null,
-    humidityPct: env?.humidityPct ?? null,
-    wind: env?.wind || null,
-    lighting: env?.lighting || null,
-    terrain: env?.terrain || null,
-    visibility: env?.visibility || null,
-  };
-}
-
-function badgeForDecision(decision?: string) {
-  if (decision === "STOP") {
-    return { label: "DETENER", cls: "bg-red-100 text-red-800" };
-  }
+/* =========================
+   HELPERS CHECKLIST
+========================= */
+function badgeForChecklistHint(decision?: string) {
+  if (decision === "STOP") return { label: "STOP WORK", cls: "bg-red-600 text-white" };
   if (decision === "REVIEW_REQUIRED") {
-    return { label: "REVISAR", cls: "bg-yellow-100 text-yellow-800" };
+    return { label: "REVISIÓN REQUERIDA", cls: "bg-amber-500 text-black" };
   }
-  return { label: "CONTINUAR", cls: "bg-green-100 text-green-800" };
+  return { label: "CONTINUAR", cls: "bg-green-600 text-white" };
 }
 
-function sectionColorForDecision(decision?: string) {
-  if (decision === "STOP") return "bg-red-50 border-red-200";
-  if (decision === "REVIEW_REQUIRED") return "bg-yellow-50 border-yellow-200";
-  return "bg-green-50 border-green-200";
+function sortChecklistActions(list: ATSChecklistAction[]) {
+  const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+  return [...(list || [])].sort((a, b) => (order[a.priority] ?? 99) - (order[b.priority] ?? 99));
 }
 
+function pillForPriority(p: ATSChecklistAction["priority"]) {
+  if (p === "critical") return { label: "CRÍTICO", cls: "bg-red-600 text-white border-red-700" };
+  if (p === "high") return { label: "ALTO", cls: "bg-orange-500 text-black border-orange-600" };
+  if (p === "medium") return { label: "MEDIO", cls: "bg-amber-300 text-black border-amber-400" };
+  return { label: "BAJO", cls: "bg-slate-200 text-black border-slate-300" };
+}
+
+function pillForCategory(c: ATSChecklistAction["category"]) {
+  if (c === "engineering") {
+    return { label: "Ingeniería", cls: "bg-indigo-50 text-indigo-900 border-indigo-200" };
+  }
+  if (c === "administrative") {
+    return { label: "Administrativo", cls: "bg-blue-50 text-blue-900 border-blue-200" };
+  }
+  return { label: "EPP", cls: "bg-emerald-50 text-emerald-900 border-emerald-200" };
+}
+
+function pillForDecisionHint(h?: string) {
+  if (h === "STOP") return { label: "STOP", cls: "bg-red-600 text-white" };
+  if (h === "REVIEW_REQUIRED") return { label: "REVISAR", cls: "bg-amber-500 text-black" };
+  return { label: "OK", cls: "bg-green-600 text-white" };
+}
+
+/* =========================
+   COMPONENTE CHECKLIST
+========================= */
 function ChecklistSection({ checklist }: { checklist: ATSChecklistActions }) {
+  const hint = checklist?.decision_hint;
+  const hintBadge = badgeForChecklistHint(hint);
+  const hintPill = pillForDecisionHint(hint);
+
+  const missing = uniqueNonEmpty(checklist?.missing);
+  const criticalFails = uniqueNonEmpty(checklist?.critical_fails);
+
+  const derivedEng = uniqueNonEmpty(checklist?.derived_controls?.engineering);
+  const derivedAdm = uniqueNonEmpty(checklist?.derived_controls?.administrative);
+  const derivedPpe = uniqueNonEmpty(checklist?.derived_controls?.ppe);
+
+  const actionsSorted = sortChecklistActions(
+    Array.isArray(checklist?.actions) ? checklist.actions : []
+  );
+
   return (
-    <section className="border rounded p-4 bg-neutral-50">
-      <div className="font-semibold">Checklist de decisión</div>
-      <div className="mt-2 text-sm">
-        <b>Estado:</b> {checklist?.status || "—"}
+    <section className="border rounded-xl p-4 md:p-5 bg-white shadow-sm space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-xs text-neutral-500">Checklist corporativo (Formato Estrella)</div>
+          <div className="text-lg font-semibold">Acciones y verificación</div>
+          <div className="text-sm text-neutral-700 mt-1">
+            Estado:{" "}
+            <span
+              className={clsx(
+                "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold",
+                hintPill.cls
+              )}
+            >
+              {hintPill.label}
+            </span>
+          </div>
+        </div>
+
+        <span className={clsx("px-3 py-1 rounded-full text-sm font-semibold", hintBadge.cls)}>
+          {hintBadge.label}
+        </span>
       </div>
 
-      <div className="mt-3">
-        <div className="font-medium text-sm">Razones</div>
-        {checklist?.reasons?.length ? (
-          <ul className="list-disc pl-5 text-sm mt-1">
-            {checklist.reasons.map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
+      {(criticalFails.length > 0 || missing.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div
+            className={clsx(
+              "border rounded-lg p-3",
+              criticalFails.length ? "border-red-200 bg-red-50" : "border-neutral-200 bg-neutral-50"
+            )}
+          >
+            <div className="font-semibold text-sm flex items-center justify-between">
+              <span>Fallos críticos</span>
+              <span className="text-xs text-neutral-600">{criticalFails.length}</span>
+            </div>
+            {criticalFails.length === 0 ? (
+              <div className="text-sm text-neutral-600 mt-2">—</div>
+            ) : (
+              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
+                {criticalFails.map((x, i) => (
+                  <li key={i} className="text-red-900">
+                    {x}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div
+            className={clsx(
+              "border rounded-lg p-3",
+              missing.length ? "border-amber-200 bg-amber-50" : "border-neutral-200 bg-neutral-50"
+            )}
+          >
+            <div className="font-semibold text-sm flex items-center justify-between">
+              <span>Faltantes</span>
+              <span className="text-xs text-neutral-600">{missing.length}</span>
+            </div>
+            {missing.length === 0 ? (
+              <div className="text-sm text-neutral-600 mt-2">—</div>
+            ) : (
+              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
+                {missing.map((x, i) => (
+                  <li key={i} className="text-amber-900">
+                    {x}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="border rounded-lg p-3 bg-neutral-50">
+        <div className="font-semibold text-sm">Controles derivados del checklist</div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+          <div className="border rounded-lg p-3 bg-white">
+            <div className="text-sm font-semibold">Ingeniería</div>
+            {derivedEng.length ? (
+              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
+                {derivedEng.map((c, i) => (
+                  <li key={i}>{c}</li>
+                ))}
+              </ul>
+            ) : (
+              <div className="text-sm text-neutral-600 mt-2">—</div>
+            )}
+          </div>
+          <div className="border rounded-lg p-3 bg-white">
+            <div className="text-sm font-semibold">Administrativos</div>
+            {derivedAdm.length ? (
+              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
+                {derivedAdm.map((c, i) => (
+                  <li key={i}>{c}</li>
+                ))}
+              </ul>
+            ) : (
+              <div className="text-sm text-neutral-600 mt-2">—</div>
+            )}
+          </div>
+          <div className="border rounded-lg p-3 bg-white">
+            <div className="text-sm font-semibold">EPP</div>
+            {derivedPpe.length ? (
+              <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
+                {derivedPpe.map((c, i) => (
+                  <li key={i}>{c}</li>
+                ))}
+              </ul>
+            ) : (
+              <div className="text-sm text-neutral-600 mt-2">—</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="border rounded-lg p-3 bg-white">
+        <div className="flex items-center justify-between">
+          <div className="font-semibold text-sm">Acciones recomendadas</div>
+          <div className="text-xs text-neutral-600">{actionsSorted.length} acción(es)</div>
+        </div>
+
+        {actionsSorted.length === 0 ? (
+          <div className="text-sm text-neutral-600 mt-2">No hay acciones adicionales.</div>
         ) : (
-          <div className="text-sm text-neutral-600 mt-1">—</div>
+          <ul className="mt-3 space-y-2">
+            {actionsSorted.map((a, i) => {
+              const pr = pillForPriority(a.priority);
+              const cat = pillForCategory(a.category);
+
+              return (
+                <li key={i} className="border rounded-lg p-3 bg-neutral-50">
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <span
+                      className={clsx(
+                        "text-[11px] font-semibold px-2 py-0.5 rounded-full border",
+                        pr.cls
+                      )}
+                    >
+                      {pr.label}
+                    </span>
+                    <span
+                      className={clsx(
+                        "text-[11px] font-semibold px-2 py-0.5 rounded-full border",
+                        cat.cls
+                      )}
+                    >
+                      {cat.label}
+                    </span>
+                  </div>
+
+                  <div className="text-sm text-neutral-900">{a.action}</div>
+
+                  {Array.isArray(a.evidence) && a.evidence.length > 0 && (
+                    <div className="mt-2">
+                      <div className="text-xs font-semibold text-neutral-600">Evidencia</div>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {uniqueNonEmpty(a.evidence).map((e, idx) => (
+                          <span
+                            key={idx}
+                            className="text-[11px] px-2 py-0.5 rounded-full border bg-white text-neutral-800"
+                          >
+                            {e}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
 
-      <div className="mt-3">
-        <div className="font-medium text-sm">Acciones requeridas</div>
-        {checklist?.required_actions?.length ? (
-          <ul className="list-disc pl-5 text-sm mt-1">
-            {checklist.required_actions.map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
-        ) : (
-          <div className="text-sm text-neutral-600 mt-1">—</div>
-        )}
+      <div className="text-xs text-neutral-500">
+        Nota: estas acciones se derivan del Formato Estrella y reglas determinísticas; la IA solo
+        afina redacción y verificabilidad.
       </div>
     </section>
   );
 }
 
-export default function ATSPage() {
+/* =========================
+   CONSTANTES FORMATO ESTRELLA
+========================= */
+const PELIGROS_TIPOS = [
+  "Físico",
+  "Químico",
+  "Biológico",
+  "Mecánico",
+  "Tecnológicos",
+  "Trabajo en alturas",
+  "Espacio Confinado",
+  "Locativo",
+  "Psicosocial",
+  "Biomecánico",
+  "Eléctrico",
+  "Objetos con potencial de caída",
+  "Otros",
+] as const;
+
+const PELIGROS_ENTORNO = [
+  "Instalaciones Aledañas",
+  "Operaciones Simultáneas",
+  "Condiciones del terreno",
+  "Clima",
+  "Otros",
+] as const;
+
+const EMERGENCIAS = [
+  "Incendio / Explosión",
+  "Descontrol de Pozos",
+  "Accidente vial",
+  "Afectación ambiental",
+  "Emergencia Médica",
+  "Orden Público",
+  "Desastre natural",
+  "Gas Sulfhídrico",
+] as const;
+
+const EQUIPO_SEGURIDAD = [
+  "Casco",
+  "Guantes",
+  "Mascara facial",
+  "Extintores / Matafuegos",
+  "Botas de seguridad",
+  "Protección Respiratoria",
+  "Antiparras/ oxicorte",
+  "Lockout/Layout/ EMN",
+  "Gafas de Seguridad",
+  "Arnés de Seguridad",
+  "Barreras",
+  "Kit herramientas para alturas",
+  "Protección Auditiva",
+  "Medición de gases",
+  "Señalización/Conos/Limitación de Área",
+  "Otros",
+] as const;
+
+const ACUERDOS_DE_VIDA = [
+  "1_Detención de tareas",
+  "2_Aislamiento de energía, bloqueo y etiquetado",
+  "3_Espacios confinados",
+  "4_Conducción segura",
+  "5_Trabajos en caliente",
+  "6_Línea de peligro",
+  "7_Izaje",
+  "8_Permiso de trabajo",
+  "9_Trabajo en altura",
+  "10_Salud pública",
+] as const;
+
+const APPROVERS: ApproverOption[] = [
+  {
+    id: "test-test",
+    name: "TEST",
+    role: "TEST",
+    email: "roniant@hotmail.com",
+    phone: "3212551148",
+  },
+];
+
+/* =========================
+   COMPONENT
+========================= */
+export default function Page() {
   const [jobTitle, setJobTitle] = useState("");
   const [company, setCompany] = useState("");
   const [location, setLocation] = useState("");
   const [dateISO, setDateISO] = useState("");
   const [shift, setShift] = useState("");
-
   const [activityDescription, setActivityDescription] = useState("");
   const [normReference, setNormReference] = useState("");
+  const companyLogoSrc = "/logo-eies.png";
 
-  const [atsNumber, setAtsNumber] = useState("");
-  const [permitNumber, setPermitNumber] = useState("");
-  const [formatVersion, setFormatVersion] = useState("");
-  const [elaborationDateISO, setElaborationDateISO] = useState("");
-  const [executionDateISO, setExecutionDateISO] = useState("");
-  const [workFront, setWorkFront] = useState("");
-  const [procedureCodeRelated, setProcedureCodeRelated] = useState("");
-
-  const [incidentsReference, setIncidentsReference] = useState<"Si" | "No">("No");
-  const [otherCompanies, setOtherCompanies] = useState<"Si" | "No">("No");
-
-  const [dangerTypes, setDangerTypes] = useState<string[]>([]);
-  const [dangerTypesOther, setDangerTypesOther] = useState("");
-  const [environmentDangers, setEnvironmentDangers] = useState<string[]>([]);
-  const [environmentDangersOther, setEnvironmentDangersOther] = useState("");
-  const [emergencies, setEmergencies] = useState<string[]>([]);
-  const [safetyEquipment, setSafetyEquipment] = useState<string[]>([]);
-  const [safetyEquipmentOther, setSafetyEquipmentOther] = useState("");
-  const [lifeSavingRules, setLifeSavingRules] = useState<string[]>([]);
-
-  const [environment, setEnvironment] = useState<any>({
+  const [environment, setEnvironment] = useState<Environment>({
     timeOfDay: null,
     weather: null,
     temperatureC: null,
@@ -335,20 +590,56 @@ export default function ATSPage() {
   const [procedureResults, setProcedureResults] = useState<ProcedureResult[]>([]);
   const [uploading, setUploading] = useState(false);
 
-  const [lessonFile, setLessonFile] = useState<File | null>(null);
-  const [lessonUploading, setLessonUploading] = useState(false);
-  const [lessonResult, setLessonResult] = useState<any>(null);
-
-  const [atsResult, setAtsResult] = useState<ATS | null>(null);
-  const [openSteps, setOpenSteps] = useState<Record<number, boolean>>({});
   const [generatingATS, setGeneratingATS] = useState(false);
   const [savingATS, setSavingATS] = useState(false);
+  const [atsResult, setAtsResult] = useState<ATS | any>(null);
+
+  const [atsHistory, setAtsHistory] = useState<ATSHistoryItem[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminUnlocked, setAdminUnlocked] = useState(false);
+  const [adminAuthError, setAdminAuthError] = useState<string | null>(null);
+
   const [savedAtsId, setSavedAtsId] = useState<string | null>(null);
+  const [approverLink, setApproverLink] = useState("");
+  const [preparingApproverLink, setPreparingApproverLink] = useState(false);
+  const [sendingApprovalEmail, setSendingApprovalEmail] = useState(false);
 
   const [uiError, setUiError] = useState<string | null>(null);
   const [uiInfo, setUiInfo] = useState<string | null>(null);
 
-  const [executants, setExecutants] = useState([
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [openSteps, setOpenSteps] = useState<Record<number, boolean>>({});
+  function toggleStep(i: number) {
+    setOpenSteps((prev) => ({ ...prev, [i]: !prev[i] }));
+  }
+
+  const [atsNumber, setAtsNumber] = useState("");
+  const [permitNumber, setPermitNumber] = useState("");
+  const [elaborationDateISO, setElaborationDateISO] = useState("");
+  const [executionDateISO, setExecutionDateISO] = useState("");
+  const [formatVersion, setFormatVersion] = useState("");
+  const [procedureCodeRelated, setProcedureCodeRelated] = useState("");
+  const [workFront, setWorkFront] = useState("");
+
+  const [incidentsReference, setIncidentsReference] = useState<"Si" | "No" | "">("");
+  const [otherCompanies, setOtherCompanies] = useState<"Si" | "No" | "">("");
+
+  const [dangerTypes, setDangerTypes] = useState<string[]>([]);
+  const [dangerTypesOther, setDangerTypesOther] = useState("");
+
+  const [environmentDangers, setEnvironmentDangers] = useState<string[]>([]);
+  const [environmentDangersOther, setEnvironmentDangersOther] = useState("");
+
+  const [emergencies, setEmergencies] = useState<string[]>([]);
+
+  const [safetyEquipment, setSafetyEquipment] = useState<string[]>([]);
+  const [safetyEquipmentOther, setSafetyEquipmentOther] = useState("");
+
+  const [lifeSavingRules, setLifeSavingRules] = useState<string[]>([]);
+
+  const [executants, setExecutants] = useState<Array<{ name: string; signature: string }>>([
     { name: "", signature: "" },
     { name: "", signature: "" },
     { name: "", signature: "" },
@@ -370,28 +661,11 @@ export default function ATSPage() {
   const [approverEmail, setApproverEmail] = useState("");
   const [approverPhone, setApproverPhone] = useState("");
   const [approverSignature, setApproverSignature] = useState("");
-  const [approverLink, setApproverLink] = useState("");
-  const [preparingApproverLink, setPreparingApproverLink] = useState(false);
-  const [sendingApprovalEmail, setSendingApprovalEmail] = useState(false);
 
-  const [emailUnlocked, setEmailUnlocked] = useState(false);
-  const [emailUnlockPassword, setEmailUnlockPassword] = useState("");
-  const [emailUnlockError, setEmailUnlockError] = useState<string | null>(null);
-
-  const [adminUnlocked, setAdminUnlocked] = useState(false);
-  const [adminPassword, setAdminPassword] = useState("");
-  const [adminAuthError, setAdminAuthError] = useState<string | null>(null);
-  const [atsHistory, setAtsHistory] = useState<AtsHistoryItem[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const lessonInputRef = useRef<HTMLInputElement>(null);
-
-  const companyLogoSrc = "/logo-eies.png";
-
-  function toggleStep(i: number) {
-    setOpenSteps((prev) => ({ ...prev, [i]: !prev[i] }));
-  }
+  const lessonInputRef = useRef<HTMLInputElement | null>(null);
+  const [lessonFile, setLessonFile] = useState<File | null>(null);
+  const [lessonUploading, setLessonUploading] = useState(false);
+  const [lessonResult, setLessonResult] = useState<LessonLearnedApiResponse | null>(null);
 
   function openLessonPicker() {
     lessonInputRef.current?.click();
@@ -402,35 +676,67 @@ export default function ATSPage() {
     setLessonResult(null);
   }
 
-  function copyApproverLink() {
-    if (!approverLink) return;
-    navigator.clipboard.writeText(approverLink);
-    setUiInfo("✅ Link copiado al portapapeles.");
-  }
+  function handleUnlockAdminSections() {
+    setAdminAuthError(null);
 
-  function sendApproverLinkByWhatsApp() {
-    if (!approverLink || !approverPhone) {
-      setUiError("No hay link o teléfono del aprobador.");
+    const expected = process.env.NEXT_PUBLIC_ATS_ADMIN_PASSWORD;
+
+    if (!expected) {
+      setAdminAuthError("No se configuró la contraseña de acceso.");
       return;
     }
 
-    const text = `Hola ${approverName || ""}, te comparto el link para aprobar el ATS:\n\n${approverLink}`;
-    let phone = approverPhone.replace(/\D/g, "");
-
-    if (!phone.startsWith("57")) {
-      phone = `57${phone}`;
+    if (adminPassword.trim() !== expected) {
+      setAdminAuthError("Contraseña incorrecta.");
+      setAdminUnlocked(false);
+      return;
     }
 
-    const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
-    window.open(waUrl, "_blank");
+    setAdminUnlocked(true);
+    setAdminAuthError(null);
+    setUiInfo("🔒 Acceso autorizado a historial y estadísticas.");
+  }
+
+  async function copyApproverLink() {
+    if (!approverLink) return;
+
+    try {
+      await navigator.clipboard.writeText(approverLink);
+      setUiInfo("🔗 Link copiado al portapapeles.");
+    } catch (err: any) {
+      setUiError(`No se pudo copiar el link: ${String(err?.message || err)}`);
+    }
+  }
+
+  async function sendApproverLinkByWhatsApp() {
+    if (!approverLink) return;
+
+    try {
+      const phone = approverPhone.replace(/\D/g, "");
+      const approver = approverName.trim() || "Aprobador";
+      const atsName = jobTitle.trim() || atsResult?.meta?.title || "ATS";
+
+      const message =
+        `Hola ${approver}, te comparto el link para revisar y firmar el ATS:\n\n` +
+        `Actividad: ${atsName}\n` +
+        `Link de aprobación: ${approverLink}`;
+
+      const whatsappUrl = phone
+        ? `https://wa.me/57${phone}?text=${encodeURIComponent(message)}`
+        : `https://wa.me/?text=${encodeURIComponent(message)}`;
+
+      window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+
+      setUiInfo("📲 Se abrió WhatsApp para compartir el link de aprobación.");
+    } catch (err: any) {
+      setUiError(`No se pudo abrir WhatsApp: ${String(err?.message || err)}`);
+    }
   }
 
   async function sendApprovalLinkByEmail(token: string) {
-    try {
-      setSendingApprovalEmail(true);
-      setUiError(null);
-      setUiInfo(null);
+    setSendingApprovalEmail(true);
 
+    try {
       const res = await fetch("/api/send-approval-link", {
         method: "POST",
         headers: {
@@ -442,53 +748,20 @@ export default function ATSPage() {
       const text = await res.text();
       const parsed = safeJsonParse<any>(text);
 
-      if (!res.ok) {
+      if (!res.ok || !parsed.ok || !parsed.value?.ok) {
         setUiError(`No se pudo enviar el link al correo del aprobador: ${text}`);
-        return;
-      }
-
-      if (!parsed.ok || !parsed.value?.ok) {
-        setUiError(parsed.ok ? parsed.value?.error || "No se pudo enviar el correo." : text);
-        return;
+        return false;
       }
 
       setUiInfo("✅ Link enviado al correo del aprobador.");
+      return true;
     } catch (err: any) {
-      setUiError(`Excepción enviando correo: ${String(err?.message || err)}`);
+      setUiError(`Excepción enviando link por correo: ${String(err?.message || err)}`);
+      return false;
     } finally {
       setSendingApprovalEmail(false);
     }
   }
-
-  function handleUnlockEmailSending() {
-    setEmailUnlockError(null);
-
-    if (!EMAIL_UNLOCK_PASSWORD) {
-      setEmailUnlockError("No se configuró la clave de envío por correo.");
-      return;
-    }
-
-    if (emailUnlockPassword !== EMAIL_UNLOCK_PASSWORD) {
-      setEmailUnlockError("Clave incorrecta.");
-      return;
-    }
-
-    setEmailUnlocked(true);
-    setUiInfo("✅ Envío por correo habilitado.");
-  }
-
-  function handleUnlockAdminSections() {
-    setAdminAuthError(null);
-
-    if (adminPassword !== "admin123") {
-      setAdminAuthError("Contraseña incorrecta.");
-      return;
-    }
-
-    setAdminUnlocked(true);
-    setUiInfo("✅ Acceso administrativo habilitado.");
-  }
-
 async function handlePrepareApproverLink() {
     setUiError(null);
     setUiInfo(null);
@@ -536,8 +809,6 @@ async function handlePrepareApproverLink() {
       });
 
       const text = await res.text();
-      console.log("CREATE APPROVAL LINK RAW RESPONSE:", text);
-
       const parsed = safeJsonParse<any>(text);
 
       if (!res.ok) {
@@ -545,34 +816,38 @@ async function handlePrepareApproverLink() {
         return;
       }
 
-      if (!parsed.ok) {
-        setUiError(`La respuesta del link no vino en JSON válido: ${parsed.error}`);
+      if (!parsed.ok || !parsed.value?.ok) {
+        setUiError("No se pudo generar el link de aprobación.");
         return;
       }
 
-      if (!parsed.value?.ok) {
-        setUiError(parsed.value?.error || "No se pudo generar el link de aprobación.");
-        return;
-      }
-
-      const link = String(
+      const link =
         parsed.value?.approval_url ||
-          parsed.value?.url ||
-          parsed.value?.link ||
-          parsed.value?.data?.approval_url ||
-          parsed.value?.data?.url ||
-          parsed.value?.data?.link ||
-          ""
-      ).trim();
+        parsed.value?.url ||
+        parsed.value?.link ||
+        "";
+
+      const token =
+        parsed.value?.token ||
+        "";
 
       if (!link) {
-        console.error("RESPUESTA SIN LINK:", parsed.value);
-        setUiError("La API respondió OK pero no devolvió approval_url.");
+        setUiError("La respuesta no trajo un link de aprobación.");
         return;
       }
 
       setApproverLink(link);
-      setUiInfo("✅ Link de aprobación generado correctamente.");
+
+      if (token) {
+        const emailSent = await sendApprovalLinkByEmail(token);
+        if (emailSent) {
+          setUiInfo("✅ Link de aprobación generado y enviado al correo del aprobador.");
+        } else {
+          setUiInfo("✅ Link de aprobación generado correctamente.");
+        }
+      } else {
+        setUiInfo("✅ Link de aprobación generado correctamente.");
+      }
     } catch (err: any) {
       setUiError(`Excepción generando link de aprobación: ${String(err?.message || err)}`);
     } finally {
@@ -1013,7 +1288,7 @@ async function handlePrepareApproverLink() {
                 commsAgreed: checkCommsAgreed,
                 toolsOk: checkToolsOk,
               },
-},
+            },
             approver: {
               name: approverName.trim(),
               role: approverRole.trim(),
@@ -1310,8 +1585,7 @@ async function handlePrepareApproverLink() {
             className="border p-2 rounded md:col-span-2"
           />
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+<div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
           <div className="border rounded p-3">
             <div className="font-medium">Incidentes en trabajos similares</div>
             <div className="mt-2 flex gap-4">
@@ -1621,9 +1895,7 @@ async function handlePrepareApproverLink() {
 
         <select
           value={environment.timeOfDay ?? ""}
-          onChange={(e) =>
-            setEnvironment((v: any) => ({ ...v, timeOfDay: e.target.value || null }))
-          }
+          onChange={(e) => setEnvironment((v) => ({ ...v, timeOfDay: e.target.value || null }))}
           className="border p-2 rounded w-full"
         >
           <option value="">Hora del día</option>
@@ -1633,9 +1905,7 @@ async function handlePrepareApproverLink() {
 
         <select
           value={environment.weather ?? ""}
-          onChange={(e) =>
-            setEnvironment((v: any) => ({ ...v, weather: e.target.value || null }))
-          }
+          onChange={(e) => setEnvironment((v) => ({ ...v, weather: e.target.value || null }))}
           className="border p-2 rounded w-full"
         >
           <option value="">Clima</option>
@@ -1647,9 +1917,7 @@ async function handlePrepareApproverLink() {
 
         <select
           value={environment.wind ?? ""}
-          onChange={(e) =>
-            setEnvironment((v: any) => ({ ...v, wind: e.target.value || null }))
-          }
+          onChange={(e) => setEnvironment((v) => ({ ...v, wind: e.target.value || null }))}
           className="border p-2 rounded w-full"
         >
           <option value="">Viento</option>
@@ -1660,9 +1928,7 @@ async function handlePrepareApproverLink() {
 
         <select
           value={environment.visibility ?? ""}
-          onChange={(e) =>
-            setEnvironment((v: any) => ({ ...v, visibility: e.target.value || null }))
-          }
+          onChange={(e) => setEnvironment((v) => ({ ...v, visibility: e.target.value || null }))}
           className="border p-2 rounded w-full"
         >
           <option value="">Visibilidad</option>
@@ -1673,9 +1939,7 @@ async function handlePrepareApproverLink() {
 
         <select
           value={environment.terrain ?? ""}
-          onChange={(e) =>
-            setEnvironment((v: any) => ({ ...v, terrain: e.target.value || null }))
-          }
+          onChange={(e) => setEnvironment((v) => ({ ...v, terrain: e.target.value || null }))}
           className="border p-2 rounded w-full"
         >
           <option value="">Terreno</option>
@@ -1689,7 +1953,7 @@ async function handlePrepareApproverLink() {
           placeholder="Temperatura °C"
           value={environment.temperatureC ?? ""}
           onChange={(e) =>
-            setEnvironment((v: any) => ({
+            setEnvironment((v) => ({
               ...v,
               temperatureC: e.target.value === "" ? null : Number(e.target.value),
             }))
@@ -1702,7 +1966,7 @@ async function handlePrepareApproverLink() {
           placeholder="Humedad %"
           value={environment.humidityPct ?? ""}
           onChange={(e) =>
-            setEnvironment((v: any) => ({
+            setEnvironment((v) => ({
               ...v,
               humidityPct: e.target.value === "" ? null : Number(e.target.value),
             }))
@@ -1764,8 +2028,7 @@ async function handlePrepareApproverLink() {
                 className="flex items-center justify-between p-2 text-sm"
               >
                 <span>
-                  {f.name}{" "}
-                  <span className="text-neutral-500">({Math.round(f.size / 1024)} KB)</span>
+                  {f.name} <span className="text-neutral-500">({Math.round(f.size / 1024)} KB)</span>
                 </span>
                 <button className="text-red-700 underline" onClick={() => removeFile(idx)}>
                   Quitar
@@ -2024,7 +2287,7 @@ async function handlePrepareApproverLink() {
             </div>
             <div className="p-2 border-r border-black">
               <div className="text-xs">N.º de Revisión</div>
-<div className="font-semibold">07</div>
+              <div className="font-semibold">07</div>
             </div>
             <div className="p-2 border-r border-black">
               <div className="text-xs">Preparado por</div>
@@ -2151,11 +2414,7 @@ async function handlePrepareApproverLink() {
               <div>
                 <div className="font-semibold">Ingeniería</div>
                 {ctrlEng.length ? (
-                  <ul className="list-disc pl-5">
-                    {ctrlEng.map((c, i) => (
-                      <li key={i}>{c}</li>
-                    ))}
-                  </ul>
+                  <ul className="list-disc pl-5">{ctrlEng.map((c, i) => <li key={i}>{c}</li>)}</ul>
                 ) : (
                   <div>—</div>
                 )}
@@ -2163,11 +2422,7 @@ async function handlePrepareApproverLink() {
               <div>
                 <div className="font-semibold">Administrativos</div>
                 {ctrlAdm.length ? (
-                  <ul className="list-disc pl-5">
-                    {ctrlAdm.map((c, i) => (
-                      <li key={i}>{c}</li>
-                    ))}
-                  </ul>
+                  <ul className="list-disc pl-5">{ctrlAdm.map((c, i) => <li key={i}>{c}</li>)}</ul>
                 ) : (
                   <div>—</div>
                 )}
@@ -2175,11 +2430,7 @@ async function handlePrepareApproverLink() {
               <div>
                 <div className="font-semibold">EPP</div>
                 {ctrlPpe.length ? (
-                  <ul className="list-disc pl-5">
-                    {ctrlPpe.map((c, i) => (
-                      <li key={i}>{c}</li>
-                    ))}
-                  </ul>
+                  <ul className="list-disc pl-5">{ctrlPpe.map((c, i) => <li key={i}>{c}</li>)}</ul>
                 ) : (
                   <div>—</div>
                 )}
@@ -2251,31 +2502,15 @@ async function handlePrepareApproverLink() {
 
             {[
               ["Tengo claridad de todas las etapas del trabajo a ejecutar", checkStagesClarity],
-              [
-                "Se han identificado y controlado todos los peligros y es seguro comenzar",
-                checkHazardsControlled,
-              ],
-              [
-                "He confirmado el aislamiento de todas las fuentes de energías peligrosas",
-                checkIsolationConfirmed,
-              ],
-              [
-                "Se han acordado responsabilidades y canales de comunicación del equipo",
-                checkCommsAgreed,
-              ],
-              [
-                "Cuento con herramientas y equipos necesarios en buenas condiciones",
-                checkToolsOk,
-              ],
+              ["Se han identificado y controlado todos los peligros y es seguro comenzar", checkHazardsControlled],
+              ["He confirmado el aislamiento de todas las fuentes de energías peligrosas", checkIsolationConfirmed],
+              ["Se han acordado responsabilidades y canales de comunicación del equipo", checkCommsAgreed],
+              ["Cuento con herramientas y equipos necesarios en buenas condiciones", checkToolsOk],
             ].map(([label, val], i) => (
               <div key={i} className="grid grid-cols-4 border-t border-black">
                 <div className="p-2 border-r border-black">{label as string}</div>
-                <div className="p-2 border-r border-black text-center">
-                  {boxByVal(val as string, "SI")}
-                </div>
-                <div className="p-2 border-r border-black text-center">
-                  {boxByVal(val as string, "NO")}
-                </div>
+                <div className="p-2 border-r border-black text-center">{boxByVal(val as string, "SI")}</div>
+                <div className="p-2 border-r border-black text-center">{boxByVal(val as string, "NO")}</div>
                 <div className="p-2 text-center">{boxByVal(val as string, "N.A.")}</div>
               </div>
             ))}
@@ -2320,6 +2555,140 @@ async function handlePrepareApproverLink() {
               )}
             </div>
           </div>
+
+          <div className="mt-4 border-t border-black pt-3">
+            <div className="font-semibold">Resumen para charla preturno</div>
+
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <div>
+                <b>Trabajo:</b> {jobTitle || atsResult?.meta?.title || "—"}
+              </div>
+              <div>
+                <b>Decisión Stop Work:</b> {atsResult?.stop_work?.decision || "—"}
+              </div>
+              <div className="col-span-2">
+                <b>Mensaje clave:</b> Si alguna condición cambia o un control no está implementado →{" "}
+                <b>DETENER</b> y re-evaluar.
+              </div>
+            </div>
+
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <div className="border border-black p-2">
+                <div className="font-semibold">Peligros críticos (Top)</div>
+                {topHazards.length ? (
+                  <ul className="list-disc pl-5 mt-1">
+                    {topHazards.map((h, i) => (
+                      <li key={i}>{h}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="mt-1">—</div>
+                )}
+              </div>
+
+              <div className="border border-black p-2">
+                <div className="font-semibold">Controles clave (Top)</div>
+                {topControls.length ? (
+                  <ul className="list-disc pl-5 mt-1">
+                    {topControls.map((c, i) => (
+                      <li key={i}>{c}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="mt-1">—</div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-3 border border-black p-2">
+              <div className="font-semibold">Pasos críticos (resumen)</div>
+              {topSteps.length ? (
+                <ol className="list-decimal pl-5 mt-1">
+                  {topSteps.map((s, i) => (
+                    <li key={i}>{String(s?.step || "").trim() || `Paso ${i + 1}`}</li>
+                  ))}
+                </ol>
+              ) : (
+                <div className="mt-1">—</div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-3 border border-black p-2">
+            <div className="font-semibold">Lista de verificación de supervisión (preturno)</div>
+
+            <div className="mt-2 border border-black">
+              <div className="grid grid-cols-4">
+                <div className="p-2 border-r border-black font-semibold">Ítem</div>
+                <div className="p-2 border-r border-black font-semibold text-center">SI</div>
+                <div className="p-2 border-r border-black font-semibold text-center">NO</div>
+                <div className="p-2 font-semibold text-center">N.A.</div>
+              </div>
+
+              {supervisionChecklistRows.map((txt, i) => (
+                <div key={i} className="grid grid-cols-4 border-t border-black">
+                  <div className="p-2 border-r border-black">{txt}</div>
+                  <div className="p-2 border-r border-black text-center">[ ]</div>
+                  <div className="p-2 border-r border-black text-center">[ ]</div>
+                  <div className="p-2 text-center">[ ]</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-2 text-[11px]">
+              <b>Resultado del verificador (supervisor):</b> Claridad etapas = [{box(checkStagesClarity === "SI")}] SI / [
+              {box(checkStagesClarity === "NO")}] NO / [{box(checkStagesClarity === "N.A.")}] N.A. · Peligros controlados
+              = [{box(checkHazardsControlled === "SI")}] SI / [{box(checkHazardsControlled === "NO")}] NO / [
+              {box(checkHazardsControlled === "N.A.")}] N.A. · Aislamiento = [{box(checkIsolationConfirmed === "SI")}] SI / [
+              {box(checkIsolationConfirmed === "NO")}] NO / [{box(checkIsolationConfirmed === "N.A.")}] N.A. · Comunicación
+              = [{box(checkCommsAgreed === "SI")}] SI / [{box(checkCommsAgreed === "NO")}] NO / [
+              {box(checkCommsAgreed === "N.A.")}] N.A. · Herramientas OK = [{box(checkToolsOk === "SI")}] SI / [
+              {box(checkToolsOk === "NO")}] NO / [{box(checkToolsOk === "N.A.")}] N.A.
+            </div>
+          </div>
+        </div>
+
+        <div className="border border-black p-2">
+          <div className="font-semibold">Etapas del trabajo a ejecutar (generadas)</div>
+          {stepsList.length === 0 ? (
+            <div className="mt-2">—</div>
+          ) : (
+            <div className="mt-2 space-y-2">
+              {stepsList.map((s, i) => (
+                <div key={i} className="border border-black p-2">
+                  <div className="font-semibold">
+                    {i + 1}. {String(s.step || `Paso ${i + 1}`)}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 mt-1">
+                    <div>
+                      <div className="font-semibold">Riesgos Potenciales</div>
+                      {uniqueNonEmpty(s.hazards).length ? (
+                        <ul className="list-disc pl-5 mt-1">
+                          {uniqueNonEmpty(s.hazards).map((h, idx) => (
+                            <li key={idx}>{h}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="mt-1">—</div>
+                      )}
+                    </div>
+                    <div>
+                      <div className="font-semibold">Acciones / Controles</div>
+                      {uniqueNonEmpty(s.controls).length ? (
+                        <ul className="list-disc pl-5 mt-1">
+                          {uniqueNonEmpty(s.controls).map((c, idx) => (
+                            <li key={idx}>{c}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="mt-1">—</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="text-[10px] text-neutral-700">
@@ -2400,21 +2769,9 @@ async function handlePrepareApproverLink() {
           <div className="mt-3 grid grid-cols-1 gap-2 text-sm">
             {[
               ["Claridad de todas las etapas", checkStagesClarity, setCheckStagesClarity],
-              [
-                "Peligros identificados y controlados",
-                checkHazardsControlled,
-                setCheckHazardsControlled,
-              ],
-              [
-                "Aislamiento energías peligrosas confirmado",
-                checkIsolationConfirmed,
-                setCheckIsolationConfirmed,
-              ],
-              [
-                "Responsabilidades y comunicación acordadas",
-                checkCommsAgreed,
-                setCheckCommsAgreed,
-              ],
+              ["Peligros identificados y controlados", checkHazardsControlled, setCheckHazardsControlled],
+              ["Aislamiento energías peligrosas confirmado", checkIsolationConfirmed, setCheckIsolationConfirmed],
+              ["Responsabilidades y comunicación acordadas", checkCommsAgreed, setCheckCommsAgreed],
               ["Herramientas/equipos en buenas condiciones", checkToolsOk, setCheckToolsOk],
             ].map(([label, value, setter], idx) => (
               <div key={idx} className="border rounded p-2">
@@ -2487,7 +2844,7 @@ async function handlePrepareApproverLink() {
             </div>
 
             <div className="mt-2 text-xs text-neutral-600">
-              El canal principal en campo es el envío del link por WhatsApp.
+              El aprobador seleccionado recibirá el enlace por correo y también podrás compartirlo por WhatsApp.
             </div>
 
             <div className="mt-3 border rounded p-3 bg-neutral-50">
@@ -2517,10 +2874,14 @@ async function handlePrepareApproverLink() {
             <button
               type="button"
               onClick={handlePrepareApproverLink}
-              disabled={preparingApproverLink}
+              disabled={preparingApproverLink || sendingApprovalEmail}
               className="px-4 py-2 bg-black text-white rounded disabled:opacity-50"
             >
-              {preparingApproverLink ? "Generando link..." : "Generar link para aprobador"}
+              {preparingApproverLink
+                ? "Generando link..."
+                : sendingApprovalEmail
+                ? "Enviando correo..."
+                : "Generar link para aprobador"}
             </button>
 
             <button
@@ -2549,71 +2910,6 @@ async function handlePrepareApproverLink() {
             >
               Refrescar ATS
             </button>
-          </div>
-
-          <div className="border rounded p-3 bg-white space-y-3">
-            <div className="font-medium text-sm">Envío por correo restringido</div>
-            <div className="text-xs text-neutral-600">
-              Esta opción queda oculta para uso administrativo.
-            </div>
-
-            {!emailUnlocked ? (
-              <div className="flex flex-col md:flex-row gap-2 md:items-center">
-                <input
-                  type="password"
-                  placeholder="Ingrese clave"
-                  value={emailUnlockPassword}
-                  onChange={(e) => setEmailUnlockPassword(e.target.value)}
-                  className="border p-2 rounded md:w-[260px]"
-                />
-                <button
-                  type="button"
-                  onClick={handleUnlockEmailSending}
-                  className="px-4 py-2 border rounded"
-                >
-                  Habilitar correo
-                </button>
-              </div>
-            ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="text-green-700 text-sm font-medium">
-                  ✅ Envío por correo habilitado
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmailUnlocked(false);
-                    setEmailUnlockPassword("");
-                    setEmailUnlockError(null);
-                  }}
-                  className="px-3 py-2 border rounded text-sm"
-                >
-                  Ocultar nuevamente
-                </button>
-              </div>
-            )}
-
-            {emailUnlockError && (
-              <div className="text-sm text-red-700">{emailUnlockError}</div>
-            )}
-
-            {emailUnlocked && approverLink && (
-              <button
-                type="button"
-                onClick={async () => {
-                  const token = approverLink.split("/").pop() || "";
-                  if (!token) {
-                    setUiError("No se encontró token para enviar el correo.");
-                    return;
-                  }
-                  await sendApprovalLinkByEmail(token);
-                }}
-                disabled={sendingApprovalEmail}
-                className="px-4 py-2 border rounded disabled:opacity-50"
-              >
-                {sendingApprovalEmail ? "Enviando correo..." : "Enviar link por correo"}
-              </button>
-            )}
           </div>
 
           {approverLink && (
@@ -2669,7 +2965,9 @@ async function handlePrepareApproverLink() {
           </div>
         )}
 
-        {adminAuthError && <div className="text-sm text-red-700">{adminAuthError}</div>}
+        {adminAuthError && (
+          <div className="text-sm text-red-700">{adminAuthError}</div>
+        )}
       </section>
 
       {adminUnlocked && (
