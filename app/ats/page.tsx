@@ -95,11 +95,11 @@ type Approver = {
 
 const APPROVERS: Approver[] = [
   {
-    id: "apr_1",
-    name: "Aprobador Prueba",
-    role: "Coordinador HSEQ",
+    id: "test-test",
+    name: "TEST",
+    role: "TEST",
     email: "roniant@hotmail.com",
-    phone: "573000000000",
+    phone: "3212551148",
   },
 ];
 
@@ -166,7 +166,7 @@ const ACUERDOS_DE_VIDA = [
 ];
 
 const EMAIL_UNLOCK_PASSWORD =
-  process.env.NEXT_PUBLIC_ATS_EMAIL_UNLOCK_PASSWORD || "12345";
+  process.env.NEXT_PUBLIC_ATS_EMAIL_UNLOCK_PASSWORD || "";
 
 function safeJsonParse<T = any>(raw: string): { ok: true; value: T } | { ok: false; error: string } {
   try {
@@ -291,7 +291,7 @@ function ChecklistSection({ checklist }: { checklist: ATSChecklistActions }) {
 
 export default function ATSPage() {
   const [jobTitle, setJobTitle] = useState("");
-  const [company, setCompany] = useState("Estrella International Energy Services");
+  const [company, setCompany] = useState("");
   const [location, setLocation] = useState("");
   const [dateISO, setDateISO] = useState("");
   const [shift, setShift] = useState("");
@@ -348,17 +348,21 @@ export default function ATSPage() {
   const [uiError, setUiError] = useState<string | null>(null);
   const [uiInfo, setUiInfo] = useState<string | null>(null);
 
-  const [executants, setExecutants] = useState([{ name: "", signature: "" }]);
+  const [executants, setExecutants] = useState([
+    { name: "", signature: "" },
+    { name: "", signature: "" },
+    { name: "", signature: "" },
+  ]);
 
   const [supervisorName, setSupervisorName] = useState("");
   const [supervisorRole, setSupervisorRole] = useState("");
   const [supervisorSignature, setSupervisorSignature] = useState("");
 
-  const [checkStagesClarity, setCheckStagesClarity] = useState<"SI" | "NO" | "N.A.">("SI");
-  const [checkHazardsControlled, setCheckHazardsControlled] = useState<"SI" | "NO" | "N.A.">("SI");
-  const [checkIsolationConfirmed, setCheckIsolationConfirmed] = useState<"SI" | "NO" | "N.A.">("N.A.");
-  const [checkCommsAgreed, setCheckCommsAgreed] = useState<"SI" | "NO" | "N.A.">("SI");
-  const [checkToolsOk, setCheckToolsOk] = useState<"SI" | "NO" | "N.A.">("SI");
+  const [checkStagesClarity, setCheckStagesClarity] = useState<"SI" | "NO" | "N.A." | "">("");
+  const [checkHazardsControlled, setCheckHazardsControlled] = useState<"SI" | "NO" | "N.A." | "">("");
+  const [checkIsolationConfirmed, setCheckIsolationConfirmed] = useState<"SI" | "NO" | "N.A." | "">("");
+  const [checkCommsAgreed, setCheckCommsAgreed] = useState<"SI" | "NO" | "N.A." | "">("");
+  const [checkToolsOk, setCheckToolsOk] = useState<"SI" | "NO" | "N.A." | "">("");
 
   const [selectedApproverId, setSelectedApproverId] = useState("");
   const [approverName, setApproverName] = useState("");
@@ -411,7 +415,12 @@ export default function ATSPage() {
     }
 
     const text = `Hola ${approverName || ""}, te comparto el link para aprobar el ATS:\n\n${approverLink}`;
-    const phone = approverPhone.replace(/\D/g, "");
+    let phone = approverPhone.replace(/\D/g, "");
+
+    if (!phone.startsWith("57")) {
+      phone = `57${phone}`;
+    }
+
     const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
     window.open(waUrl, "_blank");
   }
@@ -454,6 +463,11 @@ export default function ATSPage() {
   function handleUnlockEmailSending() {
     setEmailUnlockError(null);
 
+    if (!EMAIL_UNLOCK_PASSWORD) {
+      setEmailUnlockError("No se configuró la clave de envío por correo.");
+      return;
+    }
+
     if (emailUnlockPassword !== EMAIL_UNLOCK_PASSWORD) {
       setEmailUnlockError("Clave incorrecta.");
       return;
@@ -474,6 +488,7 @@ export default function ATSPage() {
     setAdminUnlocked(true);
     setUiInfo("✅ Acceso administrativo habilitado.");
   }
+
 async function handlePrepareApproverLink() {
     setUiError(null);
     setUiInfo(null);
@@ -998,7 +1013,7 @@ async function handlePrepareApproverLink() {
                 commsAgreed: checkCommsAgreed,
                 toolsOk: checkToolsOk,
               },
-            },
+},
             approver: {
               name: approverName.trim(),
               role: approverRole.trim(),
@@ -1295,7 +1310,8 @@ async function handlePrepareApproverLink() {
             className="border p-2 rounded md:col-span-2"
           />
         </div>
-<div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
           <div className="border rounded p-3">
             <div className="font-medium">Incidentes en trabajos similares</div>
             <div className="mt-2 flex gap-4">
@@ -1605,7 +1621,9 @@ async function handlePrepareApproverLink() {
 
         <select
           value={environment.timeOfDay ?? ""}
-          onChange={(e) => setEnvironment((v: any) => ({ ...v, timeOfDay: e.target.value || null }))}
+          onChange={(e) =>
+            setEnvironment((v: any) => ({ ...v, timeOfDay: e.target.value || null }))
+          }
           className="border p-2 rounded w-full"
         >
           <option value="">Hora del día</option>
@@ -1615,7 +1633,9 @@ async function handlePrepareApproverLink() {
 
         <select
           value={environment.weather ?? ""}
-          onChange={(e) => setEnvironment((v: any) => ({ ...v, weather: e.target.value || null }))}
+          onChange={(e) =>
+            setEnvironment((v: any) => ({ ...v, weather: e.target.value || null }))
+          }
           className="border p-2 rounded w-full"
         >
           <option value="">Clima</option>
@@ -1627,7 +1647,9 @@ async function handlePrepareApproverLink() {
 
         <select
           value={environment.wind ?? ""}
-          onChange={(e) => setEnvironment((v: any) => ({ ...v, wind: e.target.value || null }))}
+          onChange={(e) =>
+            setEnvironment((v: any) => ({ ...v, wind: e.target.value || null }))
+          }
           className="border p-2 rounded w-full"
         >
           <option value="">Viento</option>
@@ -1638,7 +1660,9 @@ async function handlePrepareApproverLink() {
 
         <select
           value={environment.visibility ?? ""}
-          onChange={(e) => setEnvironment((v: any) => ({ ...v, visibility: e.target.value || null }))}
+          onChange={(e) =>
+            setEnvironment((v: any) => ({ ...v, visibility: e.target.value || null }))
+          }
           className="border p-2 rounded w-full"
         >
           <option value="">Visibilidad</option>
@@ -1649,7 +1673,9 @@ async function handlePrepareApproverLink() {
 
         <select
           value={environment.terrain ?? ""}
-          onChange={(e) => setEnvironment((v: any) => ({ ...v, terrain: e.target.value || null }))}
+          onChange={(e) =>
+            setEnvironment((v: any) => ({ ...v, terrain: e.target.value || null }))
+          }
           className="border p-2 rounded w-full"
         >
           <option value="">Terreno</option>
@@ -1738,7 +1764,8 @@ async function handlePrepareApproverLink() {
                 className="flex items-center justify-between p-2 text-sm"
               >
                 <span>
-                  {f.name} <span className="text-neutral-500">({Math.round(f.size / 1024)} KB)</span>
+                  {f.name}{" "}
+                  <span className="text-neutral-500">({Math.round(f.size / 1024)} KB)</span>
                 </span>
                 <button className="text-red-700 underline" onClick={() => removeFile(idx)}>
                   Quitar
@@ -1997,7 +2024,7 @@ async function handlePrepareApproverLink() {
             </div>
             <div className="p-2 border-r border-black">
               <div className="text-xs">N.º de Revisión</div>
-              <div className="font-semibold">07</div>
+<div className="font-semibold">07</div>
             </div>
             <div className="p-2 border-r border-black">
               <div className="text-xs">Preparado por</div>
@@ -2124,7 +2151,11 @@ async function handlePrepareApproverLink() {
               <div>
                 <div className="font-semibold">Ingeniería</div>
                 {ctrlEng.length ? (
-                  <ul className="list-disc pl-5">{ctrlEng.map((c, i) => <li key={i}>{c}</li>)}</ul>
+                  <ul className="list-disc pl-5">
+                    {ctrlEng.map((c, i) => (
+                      <li key={i}>{c}</li>
+                    ))}
+                  </ul>
                 ) : (
                   <div>—</div>
                 )}
@@ -2132,7 +2163,11 @@ async function handlePrepareApproverLink() {
               <div>
                 <div className="font-semibold">Administrativos</div>
                 {ctrlAdm.length ? (
-                  <ul className="list-disc pl-5">{ctrlAdm.map((c, i) => <li key={i}>{c}</li>)}</ul>
+                  <ul className="list-disc pl-5">
+                    {ctrlAdm.map((c, i) => (
+                      <li key={i}>{c}</li>
+                    ))}
+                  </ul>
                 ) : (
                   <div>—</div>
                 )}
@@ -2140,7 +2175,11 @@ async function handlePrepareApproverLink() {
               <div>
                 <div className="font-semibold">EPP</div>
                 {ctrlPpe.length ? (
-                  <ul className="list-disc pl-5">{ctrlPpe.map((c, i) => <li key={i}>{c}</li>)}</ul>
+                  <ul className="list-disc pl-5">
+                    {ctrlPpe.map((c, i) => (
+                      <li key={i}>{c}</li>
+                    ))}
+                  </ul>
                 ) : (
                   <div>—</div>
                 )}
@@ -2212,15 +2251,31 @@ async function handlePrepareApproverLink() {
 
             {[
               ["Tengo claridad de todas las etapas del trabajo a ejecutar", checkStagesClarity],
-              ["Se han identificado y controlado todos los peligros y es seguro comenzar", checkHazardsControlled],
-              ["He confirmado el aislamiento de todas las fuentes de energías peligrosas", checkIsolationConfirmed],
-              ["Se han acordado responsabilidades y canales de comunicación del equipo", checkCommsAgreed],
-              ["Cuento con herramientas y equipos necesarios en buenas condiciones", checkToolsOk],
+              [
+                "Se han identificado y controlado todos los peligros y es seguro comenzar",
+                checkHazardsControlled,
+              ],
+              [
+                "He confirmado el aislamiento de todas las fuentes de energías peligrosas",
+                checkIsolationConfirmed,
+              ],
+              [
+                "Se han acordado responsabilidades y canales de comunicación del equipo",
+                checkCommsAgreed,
+              ],
+              [
+                "Cuento con herramientas y equipos necesarios en buenas condiciones",
+                checkToolsOk,
+              ],
             ].map(([label, val], i) => (
               <div key={i} className="grid grid-cols-4 border-t border-black">
                 <div className="p-2 border-r border-black">{label as string}</div>
-                <div className="p-2 border-r border-black text-center">{boxByVal(val as string, "SI")}</div>
-                <div className="p-2 border-r border-black text-center">{boxByVal(val as string, "NO")}</div>
+                <div className="p-2 border-r border-black text-center">
+                  {boxByVal(val as string, "SI")}
+                </div>
+                <div className="p-2 border-r border-black text-center">
+                  {boxByVal(val as string, "NO")}
+                </div>
                 <div className="p-2 text-center">{boxByVal(val as string, "N.A.")}</div>
               </div>
             ))}
@@ -2345,9 +2400,21 @@ async function handlePrepareApproverLink() {
           <div className="mt-3 grid grid-cols-1 gap-2 text-sm">
             {[
               ["Claridad de todas las etapas", checkStagesClarity, setCheckStagesClarity],
-              ["Peligros identificados y controlados", checkHazardsControlled, setCheckHazardsControlled],
-              ["Aislamiento energías peligrosas confirmado", checkIsolationConfirmed, setCheckIsolationConfirmed],
-              ["Responsabilidades y comunicación acordadas", checkCommsAgreed, setCheckCommsAgreed],
+              [
+                "Peligros identificados y controlados",
+                checkHazardsControlled,
+                setCheckHazardsControlled,
+              ],
+              [
+                "Aislamiento energías peligrosas confirmado",
+                checkIsolationConfirmed,
+                setCheckIsolationConfirmed,
+              ],
+              [
+                "Responsabilidades y comunicación acordadas",
+                checkCommsAgreed,
+                setCheckCommsAgreed,
+              ],
               ["Herramientas/equipos en buenas condiciones", checkToolsOk, setCheckToolsOk],
             ].map(([label, value, setter], idx) => (
               <div key={idx} className="border rounded p-2">
@@ -2602,9 +2669,7 @@ async function handlePrepareApproverLink() {
           </div>
         )}
 
-        {adminAuthError && (
-          <div className="text-sm text-red-700">{adminAuthError}</div>
-        )}
+        {adminAuthError && <div className="text-sm text-red-700">{adminAuthError}</div>}
       </section>
 
       {adminUnlocked && (
