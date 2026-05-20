@@ -19,11 +19,11 @@ function getSupabaseAdmin() {
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const id = String(searchParams.get("id") || "").trim();
+    const code = String(searchParams.get("code") || "").trim().toUpperCase();
 
-    if (!id) {
+    if (!code) {
       return NextResponse.json(
-        { ok: false, error: "id es requerido." },
+        { ok: false, error: "code es requerido." },
         { status: 400 }
       );
     }
@@ -33,7 +33,7 @@ export async function GET(req: Request) {
     const { data, error } = await supabase
       .from("ats_records")
       .select("*")
-      .eq("id", id)
+      .eq("ats_code", code)
       .maybeSingle();
 
     if (error) {
@@ -45,7 +45,7 @@ export async function GET(req: Request) {
 
     if (!data) {
       return NextResponse.json(
-        { ok: false, error: "ATS no encontrado." },
+        { ok: false, error: "No se encontró un ATS con ese código." },
         { status: 404 }
       );
     }
@@ -53,8 +53,7 @@ export async function GET(req: Request) {
     const { data: approvalLink } = await supabase
       .from("ats_approval_links")
       .select("*")
-      .eq("ats_id", id)
-      .eq("status", "signed")
+      .eq("ats_id", data.id)
       .order("signed_at", { ascending: false })
       .limit(1)
       .maybeSingle();

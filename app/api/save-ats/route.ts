@@ -3,14 +3,22 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
+function buildAtsCode() {
+  const year = new Date().getFullYear();
+  const random = Math.floor(100000 + Math.random() * 900000);
+  return `ATS-${year}-${random}`;
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
 
     const ats = body?.ats;
     if (!ats) {
@@ -19,6 +27,8 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    const atsCode = buildAtsCode();
 
     const hazardsCount = Array.isArray(ats?.hazards) ? ats.hazards.length : 0;
 
@@ -43,6 +53,7 @@ export async function POST(req: Request) {
       : 0;
 
     const payload = {
+      ats_code: atsCode,
       job_title: ats?.meta?.title || "",
       company: ats?.meta?.company || "",
       location: ats?.meta?.location || "",
@@ -73,7 +84,7 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json({ ok: true, data }, { status: 200 });
+    return NextResponse.json({ ok: true, data, ats_code: atsCode }, { status: 200 });
   } catch (err: any) {
     console.error("save-ats route error:", err);
     return NextResponse.json(

@@ -551,15 +551,7 @@ const ACUERDOS_DE_VIDA = [
   "10_Salud pública",
 ] as const;
 
-const APPROVERS: ApproverOption[] = [
-  {
-    id: "test-test",
-    name: "TEST",
-    role: "TEST",
-    email: "roniant@hotmail.com",
-    phone: "3212551148",
-  },
-];
+const APPROVERS: ApproverOption[] = [];
 
 /* =========================
    COMPONENT
@@ -573,6 +565,11 @@ export default function Page() {
   const [activityDescription, setActivityDescription] = useState("");
   const [normReference, setNormReference] = useState("");
   const companyLogoSrc = "/logo-eies.png";
+const [searchCode, setSearchCode] = useState("");
+const [searchingATS, setSearchingATS] = useState(false);
+const [startMode, setStartMode] = useState<"new" | "load" | "">("");
+const [executantSignedCount, setExecutantSignedCount] = useState(0);
+const [executantRequiredCount, setExecutantRequiredCount] = useState(0);
 
   const [environment, setEnvironment] = useState<Environment>({
     timeOfDay: null,
@@ -602,6 +599,9 @@ export default function Page() {
 
   const [savedAtsId, setSavedAtsId] = useState<string | null>(null);
   const [approverLink, setApproverLink] = useState("");
+const [executantSignLink, setExecutantSignLink] = useState("");
+const [creatingExecutantLink, setCreatingExecutantLink] = useState(false);
+const [executantSignLinks, setExecutantSignLinks] = useState<any[]>([]);
   const [preparingApproverLink, setPreparingApproverLink] = useState(false);
   const [sendingApprovalEmail, setSendingApprovalEmail] = useState(false);
 
@@ -656,6 +656,7 @@ export default function Page() {
   const [checkToolsOk, setCheckToolsOk] = useState<"SI" | "NO" | "N.A." | "">("");
 
   const [selectedApproverId, setSelectedApproverId] = useState("");
+  const [approvers, setApprovers] = useState<ApproverOption[]>([]);
   const [approverName, setApproverName] = useState("");
   const [approverRole, setApproverRole] = useState("");
   const [approverEmail, setApproverEmail] = useState("");
@@ -666,6 +667,7 @@ export default function Page() {
   const [lessonFile, setLessonFile] = useState<File | null>(null);
   const [lessonUploading, setLessonUploading] = useState(false);
   const [lessonResult, setLessonResult] = useState<LessonLearnedApiResponse | null>(null);
+  const [savedAtsCode, setSavedAtsCode] = useState("");
 
   function openLessonPicker() {
     lessonInputRef.current?.click();
@@ -839,6 +841,16 @@ async function handlePrepareApproverLink() {
       setApproverLink(link);
 
       if (token) {
+const phone = approverPhone.replace(/\D/g, "");
+
+const message =
+  `Hola ${approverName}, te comparto el link para revisión y aprobación del ATS:\n\n` +
+  `Actividad: ${jobTitle || atsResult?.meta?.title || "ATS"}\n\n` +
+  `${link}`;
+
+const whatsappUrl = `https://wa.me/57${phone}?text=${encodeURIComponent(message)}`;
+
+window.open(whatsappUrl, "_blank", "noopener,noreferrer");
         const emailSent = await sendApprovalLinkByEmail(token);
         if (emailSent) {
           setUiInfo("✅ Link de aprobación generado y enviado al correo del aprobador.");
@@ -854,7 +866,128 @@ async function handlePrepareApproverLink() {
       setPreparingApproverLink(false);
     }
   }
+async function handleCreateExecutantSignLink() {
+  try {
+    setUiError(null);
+    setUiInfo(null);
 
+   let atsIdToUse = savedAtsId;
+
+if (!atsIdToUse) {
+  await handleSaveATS();
+
+  setUiInfo("ATS guardado. Vuelve a presionar el botón para generar los links de firma.");
+  return;
+}
+
+    setCreatingExecutantLink(true);
+
+    const res = await fetch("/api/create-executant-sign-link", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+  atsId: atsIdToUse,
+  executants,
+}),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data?.ok) {
+      setUiError(data?.error || "No fue posible generar links.");
+      return;
+    }
+
+    const links = Array.isArray(data?.links)
+      ? data.links
+      : [];
+
+    if (links.length === 0) {
+      setUiError("No se generaron links.");
+      return;
+    }
+
+    setExecutantSignLinks(links);
+setExecutantSignLink(links.map((x: any) => x.signUrl).join("\n"));
+
+if (links.length === 1) {
+  const item = links[0];
+  const phone = String(item.phone || "").replace(/\D/g, "");
+
+  const message =
+    `Hola ${item.name || ""}, por favor registra tu firma como ejecutante del ATS:\n\n${item.signUrl}`;
+
+  window.open(
+    `https://wa.me/57${phone}?text=${encodeURIComponent(message)}`,
+    "_blank",
+    "noopener,noreferrer"
+  );
+}
+
+setUiInfo(
+  links.length === 1
+    ? "✅ Link enviado al ejecutante."
+    : "✅ Links generados. Usa los botones individuales de WhatsApp."
+);
+  } catch (err: any) {
+    setUiError(err?.message || "Error generando links.");
+  } finally {
+    setCreatingExecutantLink(false);
+  }
+}
+async function refreshExecutantSignatures() {
+  try {
+    if (!savedAtsId) return;
+
+    const res = await fetch("/api/list-executant-signatures", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        atsId: savedAtsId,
+      }),
+    });
+
+    const json = await res.json();
+
+    if (!res.ok) {
+      console.error(json.error);
+      return;
+    }
+
+    const rows = Array.isArray(json.data) ? json.data : [];
+
+    const signedRows = rows.filter(
+      (r: any) => r.status === "signed"
+    );
+
+    setExecutantRequiredCount(rows.length);
+    setExecutantSignedCount(signedRows.length);
+
+    setExecutants((prev) =>
+      prev.map((ex) => {
+        const found = rows.find(
+  (r: any) =>
+    String(r.name || "").trim().toLowerCase() ===
+    String(ex.name || "").trim().toLowerCase()
+);
+
+        if (!found) return ex;
+
+        return {
+          ...ex,
+          remoteSigned: found.status === "signed",
+          remoteSignature: found.signature_data || "",
+        };
+      })
+    );
+  } catch (err) {
+    console.error(err);
+  }
+}
   async function uploadLessonLearned(file: File) {
     setUiError(null);
     setUiInfo(null);
@@ -910,21 +1043,46 @@ async function handlePrepareApproverLink() {
   }, [incidentsReference]);
 
   useEffect(() => {
-    const selected = APPROVERS.find((a) => a.id === selectedApproverId);
 
-    if (!selected) {
-      setApproverName("");
-      setApproverRole("");
-      setApproverEmail("");
-      setApproverPhone("");
-      return;
+  const selected = approvers.find((a) => a.id === selectedApproverId);
+
+  if (!selected) {
+    setApproverName("");
+    setApproverRole("");
+    setApproverEmail("");
+    setApproverPhone("");
+    return;
+  }
+
+  setApproverName(selected.name);
+  setApproverRole(selected.role);
+  setApproverEmail(selected.email);
+  setApproverPhone(selected.phone);
+}, [selectedApproverId, approvers]);
+useEffect(() => {
+  async function loadApprovers() {
+    try {
+      const res = await fetch("/api/list-approvers", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const text = await res.text();
+      const parsed = safeJsonParse<any>(text);
+
+      if (!res.ok || !parsed.ok || !parsed.value?.ok) {
+        console.error("Error cargando aprobadores:", text);
+        return;
+      }
+
+      setApprovers(Array.isArray(parsed.value.data) ? parsed.value.data : []);
+    } catch (err) {
+      console.error("Excepción cargando aprobadores:", err);
     }
+  }
 
-    setApproverName(selected.name);
-    setApproverRole(selected.role);
-    setApproverEmail(selected.email);
-    setApproverPhone(selected.phone);
-  }, [selectedApproverId]);
+  loadApprovers();
+}, []);
 
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -988,64 +1146,246 @@ async function handlePrepareApproverLink() {
   }
 
   async function refreshSavedATS() {
-    if (!savedAtsId) {
-      setUiError("Primero debes guardar el ATS para poder refrescarlo.");
+  if (!savedAtsId) {
+    setUiError("Primero debes guardar el ATS para poder refrescarlo.");
+    return;
+  }
+
+  try {
+    setUiError(null);
+    setUiInfo(null);
+
+    const res = await fetch(`/api/get-ats?id=${savedAtsId}`, {
+      method: "GET",
+      cache: "no-store",
+    });
+
+    const text = await res.text();
+    const parsed = safeJsonParse<any>(text);
+
+    if (!res.ok) {
+      setUiError(`Error consultando ATS actualizado (HTTP ${res.status}): ${text}`);
       return;
     }
 
-    try {
-      setUiError(null);
-      setUiInfo(null);
-
-      const res = await fetch(`/api/get-ats?id=${savedAtsId}`, {
-        method: "GET",
-        cache: "no-store",
-      });
-
-      const text = await res.text();
-      const parsed = safeJsonParse<any>(text);
-
-      if (!res.ok) {
-        setUiError(`Error consultando ATS actualizado (HTTP ${res.status}): ${text}`);
-        return;
-      }
-
-      if (!parsed.ok || !parsed.value?.ok) {
-        setUiError("No se pudo refrescar el ATS actualizado.");
-        return;
-      }
-
-      const freshAts = parsed.value?.data?.ats_json || null;
-
-      if (!freshAts) {
-        setUiError("La respuesta no trajo ats_json.");
-        return;
-      }
-
-      setAtsResult(freshAts);
-
-      const remoteApproverSignature =
-        freshAts?.estrella_format?.authorizations?.approver?.signature || "";
-
-      const remoteApproverName =
-        freshAts?.estrella_format?.authorizations?.approver?.name || "";
-
-      setApproverSignature(remoteApproverSignature || "");
-      if (remoteApproverName) {
-        setApproverName(remoteApproverName || "");
-      }
-
-      setUiInfo("✅ ATS refrescado con la firma remota del aprobador.");
-    } catch (err: any) {
-      setUiError(`Excepción refrescando ATS: ${String(err?.message || err)}`);
+    if (!parsed.ok || !parsed.value?.ok) {
+      setUiError("No se pudo refrescar el ATS actualizado.");
+      return;
     }
-  }
 
+    const freshAts = parsed.value?.data?.ats_json || null;
+
+    if (!freshAts) {
+      setUiError("La respuesta no trajo ats_json.");
+      return;
+    }
+
+    const remoteApproverSignature =
+  parsed.value?.approval_link?.approver_signature_data ||
+  freshAts?.estrella_format?.authorizations?.approver?.signature ||
+  "";
+
+const remoteApproverName =
+  parsed.value?.approval_link?.approver_name ||
+  freshAts?.estrella_format?.authorizations?.approver?.name ||
+  "";
+
+    setAtsResult((prev: any) => {
+      if (!prev) return freshAts;
+
+      return {
+        ...prev,
+        estrella_format: {
+          ...(prev?.estrella_format || {}),
+          authorizations: {
+            ...(prev?.estrella_format?.authorizations || {}),
+            approver: {
+              ...(prev?.estrella_format?.authorizations?.approver || {}),
+              ...(freshAts?.estrella_format?.authorizations?.approver || {}),
+            },
+          },
+        },
+      };
+    });
+const supervisorData =
+  freshAts?.estrella_format?.authorizations?.supervisor || {};
+
+setSupervisorName((prev) => supervisorData?.name || prev);
+setSupervisorRole((prev) => supervisorData?.role || prev);
+setSupervisorSignature((prev) => supervisorData?.signature || prev);
+
+    if (remoteApproverName) {
+  setApproverName(remoteApproverName || "");
+}
+
+if (remoteApproverSignature) {
+  setApproverSignature(remoteApproverSignature);
+}
+
+    setUiInfo("✅ ATS refrescado con la firma remota del aprobador.");
+  } catch (err: any) {
+    setUiError(`Excepción refrescando ATS: ${String(err?.message || err)}`);
+  }
+}
+async function handleSearchATSByCode() {
+  try {
+    setUiError(null);
+    setUiInfo(null);
+
+    if (!searchCode.trim()) {
+      setUiError("Debes ingresar un código ATS.");
+      return;
+    }
+
+    setSearchingATS(true);
+
+    const res = await fetch(
+      `/api/find-ats-by-code?code=${encodeURIComponent(searchCode.trim())}`,
+      { method: "GET", cache: "no-store" }
+    );
+
+    const text = await res.text();
+    const parsed = safeJsonParse<any>(text);
+
+    if (!res.ok || !parsed.ok || !parsed.value?.ok) {
+      setUiError(parsed.ok ? parsed.value?.error || "No se encontró el ATS." : text);
+      return;
+    }
+
+    const atsRow = parsed.value?.data;
+    const approvalLink = parsed.value?.approval_link;
+    const ats = atsRow?.ats_json;
+
+    if (!ats) {
+      setUiError("El ATS encontrado no contiene ats_json.");
+      return;
+    }
+
+    const estrella = ats?.estrella_format || {};
+    const auth = estrella?.authorizations || {};
+    const supervisor = auth?.supervisor || {};
+    const approver = auth?.approver || {};
+    const supervisorSignatureLoaded =
+    supervisor?.signature ||
+    ats?.estrella_format?.authorizations?.supervisor?.signature ||
+    "";
+
+  const approverSignatureLoaded =
+  approvalLink?.approver_signature_data ||
+  approver?.signature ||
+  ats?.estrella_format?.authorizations?.approver?.signature ||
+  "";
+    setAtsResult(ats);
+    setSupervisorName(supervisor?.name || "");
+    setSupervisorRole(supervisor?.role || "");
+    setSupervisorSignature(supervisorSignatureLoaded);
+    setSavedAtsId(atsRow.id || "");
+    setSavedAtsCode(atsRow.ats_code || "");
+
+    setJobTitle(ats?.meta?.title || "");
+    setCompany(ats?.meta?.company || "");
+    setLocation(ats?.meta?.location || "");
+    setShift(ats?.meta?.shift || "");
+
+    setAtsNumber(estrella?.atsNumber || "");
+    setPermitNumber(estrella?.permitNumber || "");
+    setFormatVersion(estrella?.version || "");
+    setProcedureCodeRelated(estrella?.procedureCodeRelated || "");
+    setWorkFront(estrella?.workFront || "");
+
+    setIncidentsReference(estrella?.incidentsReference || "");
+    setOtherCompanies(estrella?.otherCompanies || "");
+
+    setDangerTypes(Array.isArray(estrella?.dangerTypes) ? estrella.dangerTypes : []);
+    setDangerTypesOther(estrella?.dangerTypesOther || "");
+
+    setEnvironmentDangers(
+      Array.isArray(estrella?.environmentDangers) ? estrella.environmentDangers : []
+    );
+    setEnvironmentDangersOther(estrella?.environmentDangersOther || "");
+
+    setEmergencies(Array.isArray(estrella?.emergencies) ? estrella.emergencies : []);
+    setSafetyEquipment(
+      Array.isArray(estrella?.safetyEquipment) ? estrella.safetyEquipment : []
+    );
+    setSafetyEquipmentOther(estrella?.safetyEquipmentOther || "");
+
+    setLifeSavingRules(
+      Array.isArray(estrella?.lifeSavingRules) ? estrella.lifeSavingRules : []
+    );
+
+   const loadedExecutants =
+  Array.isArray(auth?.executants) && auth.executants.length > 0
+    ? auth.executants
+    : [
+        { name: "", signature: "" },
+        { name: "", signature: "" },
+        { name: "", signature: "" },
+      ];
+
+setExecutants(loadedExecutants);
+
+const requiredCount = loadedExecutants.filter(
+  (ex: any) => String(ex.name || "").trim()
+).length;
+
+const signedCount = loadedExecutants.filter(
+  (ex: any) => ex.remoteSignature || ex.signature
+).length;
+
+setExecutantRequiredCount(requiredCount);
+setExecutantSignedCount(signedCount);
+
+    setSupervisorName(supervisor?.name || "");
+    setSupervisorRole(supervisor?.role || "");
+    setSupervisorSignature(supervisor?.signature || "");
+
+    setCheckStagesClarity(supervisor?.checks?.stagesClarity || "");
+    setCheckHazardsControlled(supervisor?.checks?.hazardsControlled || "");
+    setCheckIsolationConfirmed(supervisor?.checks?.isolationConfirmed || "");
+    setCheckCommsAgreed(supervisor?.checks?.commsAgreed || "");
+    setCheckToolsOk(supervisor?.checks?.toolsOk || "");
+
+    setApproverName(approvalLink?.approver_name || approver?.name || "");
+    setApproverRole(approvalLink?.approver_role || approver?.role || "");
+    setApproverEmail(approvalLink?.approver_email || approver?.email || "");
+    setApproverPhone(approvalLink?.approver_phone || approver?.phone || "");
+    setApproverSignature(approverSignatureLoaded);
+setStartMode("new");
+    setUiInfo(`✅ ATS ${atsRow.ats_code} cargado correctamente.`);
+  } catch (err: any) {
+    setUiError(`Excepción buscando ATS: ${String(err?.message || err)}`);
+  } finally {
+    setSearchingATS(false);
+  }
+}
   useEffect(() => {
     if (adminUnlocked) {
       loadATSHistory();
     }
   }, [adminUnlocked]);
+
+useEffect(() => {
+  if (!savedAtsId) return;
+
+  const interval = window.setInterval(() => {
+    refreshSavedATS();
+  }, 5000);
+
+  return () => window.clearInterval(interval);
+}, [savedAtsId]);
+
+useEffect(() => {
+  if (!savedAtsId) return;
+
+  refreshExecutantSignatures();
+
+  const interval = setInterval(() => {
+    refreshExecutantSignatures();
+  }, 5000);
+
+  return () => clearInterval(interval);
+}, [savedAtsId]);
 
   function openFilePicker() {
     fileInputRef.current?.click();
@@ -1380,7 +1720,10 @@ async function handlePrepareApproverLink() {
               ...(atsResult?.estrella_format?.authorizations?.supervisor || {}),
               name: supervisorName.trim(),
               role: supervisorRole.trim(),
-              signature: supervisorSignature,
+              signature:
+              supervisorSignature ||
+              atsResult?.estrella_format?.authorizations?.supervisor?.signature ||
+               "",
               checks: {
                 stagesClarity: checkStagesClarity,
                 hazardsControlled: checkHazardsControlled,
@@ -1433,16 +1776,23 @@ async function handlePrepareApproverLink() {
         return;
       }
 
-      const newId =
-        parsed.value?.id ||
-        parsed.value?.ats_id ||
-        parsed.value?.data?.[0]?.id ||
-        null;
+      const savedRow = parsed.value?.data?.[0] || null;
+
+const newId =
+  savedRow?.id ||
+  parsed.value?.id ||
+  parsed.value?.ats_id ||
+  null;
+
+const newCode =
+  savedRow?.ats_code ||
+  "";
 
       setAtsResult(atsToSave);
       setSavedAtsId(newId);
+      setSavedAtsCode(newCode);
       setApproverLink("");
-      setApproverSignature("");
+      setApproverSignature((prev) => prev);
 
       setUiInfo("✅ ATS guardado correctamente en Supabase.");
       await loadATSHistory();
@@ -1492,6 +1842,36 @@ async function handlePrepareApproverLink() {
     "Herramientas/equipos inspeccionados y aptos para uso.",
     "Plan de emergencias y comunicación verificados (rutas, puntos, radios/teléfono).",
   ];
+const localSignedExecutants = executants.filter(
+  (ex: any) => ex.remoteSignature || ex.signature
+).length;
+
+const localRequiredExecutants = executants.filter(
+  (ex: any) => String(ex.name || "").trim()
+).length;
+
+const signedCountToShow =
+  executantSignedCount > 0
+    ? executantSignedCount
+    : localSignedExecutants;
+
+const requiredCountToShow =
+  executantRequiredCount > 0
+    ? executantRequiredCount
+    : localRequiredExecutants;
+
+const allExecutantsSigned =
+  requiredCountToShow > 0 &&
+  signedCountToShow >= requiredCountToShow;
+const supervisorSignatureToShow =
+  supervisorSignature ||
+  atsResult?.estrella_format?.authorizations?.supervisor?.signature ||
+  "";
+
+const approverSignatureToShow =
+  approverSignature ||
+  atsResult?.estrella_format?.authorizations?.approver?.signature ||
+  "";
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -1507,7 +1887,135 @@ async function handlePrepareApproverLink() {
           className="h-20 w-auto object-contain"
         />
       </div>
+<section className="no-print border rounded p-4 space-y-3 bg-neutral-50">
+  <div className="font-semibold">¿Qué deseas hacer?</div>
 
+  <div className="flex flex-wrap gap-2">
+    <button
+  type="button"
+  onClick={() => {
+  setStartMode("new");
+
+  setAtsResult(null);
+
+  setSavedAtsId(null);
+  setSavedAtsCode("");
+
+  setApproverLink("");
+  setApproverSignature("");
+
+  setUiError(null);
+  setUiInfo(null);
+
+  setJobTitle("");
+  setCompany("");
+  setLocation("");
+  setShift("");
+
+  setActivityDescription("");
+  setNormReference("");
+
+  setOpenSteps({});
+
+  setExecutants([{ name: "", signature: "" }]);
+
+  setSupervisorName("");
+  setSupervisorRole("");
+  setSupervisorSignature("");
+
+  setApproverName("");
+  setApproverEmail("");
+  setApproverPhone("");
+
+  setSelectedApproverId("");
+
+  setDangerTypes([]);
+  setEnvironmentDangers([]);
+  setEmergencies([]);
+  setSafetyEquipment([]);
+  setLifeSavingRules([]);
+
+  setProcedureRefs([]);
+  setProcedureResults([]);
+
+  setSelectedFiles([]);
+
+  setSearchCode("");
+
+  setCheckStagesClarity("N.A.");
+  setCheckHazardsControlled("N.A.");
+  setCheckIsolationConfirmed("N.A.");
+  setCheckCommsAgreed("N.A.");
+  setCheckToolsOk("N.A.");
+setAtsNumber("");
+setPermitNumber("");
+setFormatVersion("");
+setWorkFront("");
+setProcedureCodeRelated("");
+
+setIncidentsReference("No");
+setOtherCompanies("No");
+
+setDangerTypesOther("");
+setEnvironmentDangersOther("");
+setSafetyEquipmentOther("");
+
+setLessonFile(null);
+setLessonResult(null);
+
+  setEnvironment({
+    timeOfDay: null,
+    weather: null,
+    wind: null,
+    visibility: null,
+    terrain: null,
+    temperatureC: null,
+    humidityPct: null,
+  });
+  }}
+  className="px-4 py-2 bg-green-700 text-white rounded"
+    >
+      Crear nuevo ATS
+    </button>
+
+    <button
+      type="button"
+      onClick={() => setStartMode("load")}
+      className="px-4 py-2 bg-black text-white rounded"
+    >
+      Cargar ATS existente
+    </button>
+  </div>
+</section>
+
+{startMode === "load" && (
+  <section className="no-print border rounded p-4 space-y-3 bg-blue-50 border-blue-200">
+    <div className="font-semibold">Buscar ATS por código</div>
+
+    <div className="text-sm text-neutral-700">
+      Consulta ATS previamente guardados usando su código único.
+    </div>
+
+    <div className="flex flex-col md:flex-row gap-2">
+      <input
+        type="text"
+        value={searchCode}
+        onChange={(e) => setSearchCode(e.target.value.toUpperCase())}
+        placeholder="Ej: ATS-2026-123456"
+        className="border p-2 rounded md:w-[320px]"
+      />
+
+      <button
+        type="button"
+        onClick={handleSearchATSByCode}
+        disabled={searchingATS}
+        className="px-4 py-2 bg-black text-white rounded disabled:opacity-50"
+      >
+        {searchingATS ? "Buscando..." : "Buscar ATS"}
+      </button>
+    </div>
+  </section>
+)}
       {(uiError || uiInfo) && (
         <div
           className={[
@@ -1520,8 +2028,9 @@ async function handlePrepareApproverLink() {
           {uiError ?? uiInfo}
         </div>
       )}
-
-      <section className="no-print border rounded p-4 space-y-4">
+{startMode === "new" && (
+  <div className="space-y-0">
+    <section className="no-print border rounded p-4 space-y-4">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <div className="text-xs text-neutral-600">Gestión de HSSEQ</div>
@@ -1982,19 +2491,20 @@ async function handlePrepareApproverLink() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <button onClick={openFilePicker} className="bg-black text-white px-4 py-2 rounded">
+          <button type="button" onClick={openFilePicker} className="bg-black text-white px-4 py-2 rounded">
             Seleccionar procedimientos / FDS
           </button>
 
           <button
-            onClick={handleUploadProcedures}
+          type="button"
+          onClick={handleUploadProcedures}
             disabled={uploading || selectedFiles.length === 0}
             className="px-4 py-2 border rounded disabled:opacity-50"
           >
             {uploading ? "Procesando..." : "Procesar documentos técnicos"}
           </button>
 
-          <button onClick={clearAllFiles} className="px-4 py-2 border rounded">
+          <button type="button" onClick={clearAllFiles} className="px-4 py-2 border rounded">
             Limpiar
           </button>
         </div>
@@ -2030,7 +2540,7 @@ async function handlePrepareApproverLink() {
                 <span>
                   {f.name} <span className="text-neutral-500">({Math.round(f.size / 1024)} KB)</span>
                 </span>
-                <button className="text-red-700 underline" onClick={() => removeFile(idx)}>
+                <button type="button" className="text-red-700 underline" onClick={() => removeFile(idx)}>
                   Quitar
                 </button>
               </li>
@@ -2483,11 +2993,24 @@ async function handlePrepareApproverLink() {
               <div className="p-2 font-semibold">Firma</div>
             </div>
             {executants.map((ex, idx) => (
-              <div key={idx} className="grid grid-cols-2 border-t border-black">
-                <div className="p-2 border-r border-black">{ex.name || "—"}</div>
-                <div className="p-2">{ex.signature || "—"}</div>
-              </div>
-            ))}
+  <div key={idx} className="grid grid-cols-2 border-t border-black">
+    <div className="p-2 border-r border-black">
+      {ex.name || "-"}
+    </div>
+
+    <div className="p-2">
+      {(ex as any).remoteSignature ? (
+        <img
+          src={(ex as any).remoteSignature}
+          alt={`Firma ${ex.name || "ejecutante"}`}
+          className="max-h-[80px] w-auto object-contain"
+        />
+      ) : (
+        ex.signature || "-"
+      )}
+    </div>
+  </div>
+))}
           </div>
 
           <div className="mt-3 font-semibold">Verificador de inicio del trabajo (Supervisor de área)</div>
@@ -2695,10 +3218,10 @@ async function handlePrepareApproverLink() {
           “Descargar PDF” abre el diálogo de impresión del navegador: selecciona “Guardar como PDF”.
         </div>
       </div>
-
+      {atsResult && (
       <section className="no-print border rounded p-4 space-y-3">
-        <div className="font-semibold">Autorización y verificación (Formato Estrella)</div>
-
+        <div className="font-semibold">Autorización y verificación (Formato 
+        Estrella)</div>
         <div className="border rounded p-3">
           <div className="font-medium">Ejecutantes</div>
           <div className="mt-2 space-y-2">
@@ -2717,7 +3240,7 @@ async function handlePrepareApproverLink() {
                   className="border p-2 rounded"
                 />
                 <input
-                  placeholder="Firma (texto)"
+                  placeholder="# de whatsapp para firma"
                   value={ex.signature}
                   onChange={(e) =>
                     setExecutants((prev) => {
@@ -2728,7 +3251,21 @@ async function handlePrepareApproverLink() {
                   }
                   className="border p-2 rounded"
                 />
+{(ex as any).remoteSignature && (
+  <div className="border rounded p-2 bg-green-50 mt-2">
+    <div className="text-xs text-green-700 mb-1">
+      Firma remota registrada
+    </div>
+
+    <img
+      src={(ex as any).remoteSignature}
+      alt={`Firma ${ex.name || "ejecutante"}`}
+      className="max-h-[80px] w-auto object-contain bg-white border rounded"
+    />
+  </div>
+)}
               </div>
+
             ))}
 
             <button
@@ -2739,6 +3276,66 @@ async function handlePrepareApproverLink() {
               + Agregar ejecutante
             </button>
           </div>
+<section className="no-print border rounded p-4 space-y-3 bg-emerald-50 border-emerald-200">
+    <div className="font-semibold">Firma remota de ejecutantes</div>
+
+    <div className="text-sm text-neutral-700">
+      Genera un enlace para que los ejecutantes registren su firma desde el celular.
+    </div>
+
+    <button
+      type="button"
+      onClick={handleCreateExecutantSignLink}
+      disabled={creatingExecutantLink}
+      className="px-4 py-2 bg-green-700 text-white rounded disabled:opacity-50"
+    >
+      {creatingExecutantLink
+        ? "Generando..."
+        : savedAtsId ? "Generar links de firma" : "Guardar ATS y generar links de firma"}
+    </button>
+
+    {executantSignLink && (
+      <div className="border rounded bg-white p-3 text-sm break-all">
+        {executantSignLink}
+      </div>
+    )}
+{executantSignLinks.length > 0 && (
+  <div className="space-y-2">
+    {executantSignLinks.map((item: any, idx: number) => {
+      const phone = String(item.phone || "").replace(/\D/g, "");
+      const message =
+        `Hola ${item.name || ""}, por favor registra tu firma como ejecutante del ATS:\n\n${item.signUrl}`;
+
+      return (
+        <div
+          key={`${item.token || idx}`}
+          className="border rounded bg-white p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2"
+        >
+          <div className="text-sm">
+            <div className="font-medium">{item.name || `Ejecutante ${idx + 1}`}</div>
+            <div className="text-neutral-600 break-all">{item.signUrl}</div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() =>
+              window.open(
+                `https://wa.me/57${phone}?text=${encodeURIComponent(message)}`,
+                "_blank",
+                "noopener,noreferrer"
+              )
+            }
+            className="px-4 py-2 bg-green-700 text-white rounded"
+          >
+            Enviar WhatsApp
+          </button>
+        </div>
+      );
+    })}
+  </div>
+)}
+  </section>
+
         </div>
 
         <div className="border rounded p-3">
@@ -2759,11 +3356,20 @@ async function handlePrepareApproverLink() {
           </div>
 
           <div className="mt-3">
-            <SignaturePadField
-              label="Firma del supervisor"
-              value={supervisorSignature}
-              onChange={setSupervisorSignature}
-            />
+<div className="text-sm text-neutral-600 mb-2">
+  Firmas ejecutantes: {signedCountToShow} / {requiredCountToShow}
+</div>
+          {allExecutantsSigned ? (
+  <SignaturePadField
+    label="Firma del supervisor"
+    value={supervisorSignature}
+    onChange={setSupervisorSignature}
+  />
+) : (
+  <div className="border rounded p-3 bg-yellow-50 text-sm text-yellow-800">
+    Primero deben firmar todos los ejecutantes para habilitar la firma del supervisor.
+  </div>
+)}
           </div>
 
           <div className="mt-3 grid grid-cols-1 gap-2 text-sm">
@@ -2794,8 +3400,8 @@ async function handlePrepareApproverLink() {
           </div>
         </div>
       </section>
-
-      {savedAtsId && supervisorSignature && (
+      )}
+      {atsResult && savedAtsId && allExecutantsSigned && supervisorSignatureToShow && (
         <section className="no-print border rounded p-4 space-y-4 bg-blue-50 border-blue-200">
           <div className="font-semibold">Aprobación remota</div>
           <div className="text-sm text-neutral-700">
@@ -2814,7 +3420,7 @@ async function handlePrepareApproverLink() {
                 className="border p-2 rounded"
               >
                 <option value="">Seleccione un aprobador</option>
-                {APPROVERS.map((a) => (
+                {approvers.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name} — {a.role}
                   </option>
@@ -2869,48 +3475,29 @@ async function handlePrepareApproverLink() {
               )}
             </div>
           </div>
+<div className="flex flex-wrap gap-2">
+  <button
+    type="button"
+    onClick={handlePrepareApproverLink}
+    disabled={preparingApproverLink || sendingApprovalEmail}
+    className="px-4 py-2 bg-green-700 text-white rounded disabled:opacity-50"
+  >
+    {preparingApproverLink
+      ? "Generando..."
+      : sendingApprovalEmail
+      ? "Enviando..."
+      : "Enviar aprobación por WhatsApp"}
+  </button>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={handlePrepareApproverLink}
-              disabled={preparingApproverLink || sendingApprovalEmail}
-              className="px-4 py-2 bg-black text-white rounded disabled:opacity-50"
-            >
-              {preparingApproverLink
-                ? "Generando link..."
-                : sendingApprovalEmail
-                ? "Enviando correo..."
-                : "Generar link para aprobador"}
-            </button>
-
-            <button
-              type="button"
-              onClick={copyApproverLink}
-              disabled={!approverLink}
-              className="px-4 py-2 border rounded disabled:opacity-50"
-            >
-              Copiar link
-            </button>
-
-            <button
-              type="button"
-              onClick={sendApproverLinkByWhatsApp}
-              disabled={!approverLink}
-              className="px-4 py-2 border rounded disabled:opacity-50"
-            >
-              Enviar por WhatsApp
-            </button>
-
-            <button
-              type="button"
-              onClick={refreshSavedATS}
-              disabled={!savedAtsId}
-              className="px-4 py-2 border rounded disabled:opacity-50"
-            >
-              Refrescar ATS
-            </button>
-          </div>
+  <button
+    type="button"
+    onClick={refreshSavedATS}
+    disabled={!savedAtsId}
+    className="px-4 py-2 border rounded disabled:opacity-50"
+  >
+    Refrescar ATS
+  </button>
+</div>
 
           {approverLink && (
             <div className="border rounded bg-white p-3 text-sm break-all">
@@ -2920,55 +3507,6 @@ async function handlePrepareApproverLink() {
         </section>
       )}
 
-      <section className="no-print border rounded p-4 space-y-3 bg-neutral-50">
-        <div className="font-semibold">Acceso restringido</div>
-        <div className="text-sm text-neutral-600">
-          El historial y las estadísticas del ATS requieren contraseña.
-        </div>
-
-        {!adminUnlocked ? (
-          <div className="flex flex-col md:flex-row gap-2 md:items-center">
-            <input
-              type="password"
-              placeholder="Ingrese contraseña"
-              value={adminPassword}
-              onChange={(e) => setAdminPassword(e.target.value)}
-              className="border p-2 rounded md:w-[320px]"
-            />
-
-            <button
-              type="button"
-              onClick={handleUnlockAdminSections}
-              className="px-4 py-2 bg-black text-white rounded"
-            >
-              Desbloquear
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="text-green-700 font-medium">
-              ✅ Acceso habilitado a historial y estadísticas
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setAdminUnlocked(false);
-                setAdminPassword("");
-                setAdminAuthError(null);
-                setAtsHistory([]);
-              }}
-              className="px-4 py-2 border rounded"
-            >
-              Bloquear nuevamente
-            </button>
-          </div>
-        )}
-
-        {adminAuthError && (
-          <div className="text-sm text-red-700">{adminAuthError}</div>
-        )}
-      </section>
 
       {adminUnlocked && (
         <section className="no-print border rounded p-4 space-y-3">
@@ -3029,35 +3567,45 @@ async function handlePrepareApproverLink() {
         </section>
       )}
 
-      {atsResult && (
-        <div className="no-print border-t pt-6 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={handleSaveATS}
-            disabled={savingATS}
-            className="px-6 py-2 border rounded disabled:opacity-50"
-          >
-            {savingATS ? "Guardando..." : "Guardar ATS"}
-          </button>
+   {atsResult && (
+        <div className="no-print border-t pt-6 space-y-3">
+          {savedAtsCode && (
+            <div className="text-sm font-semibold text-green-700">
+              Código ATS: {savedAtsCode}
+            </div>
+          )}
 
-          <button
-            type="button"
-            onClick={refreshSavedATS}
-            disabled={!savedAtsId}
-            className="px-6 py-2 border rounded disabled:opacity-50"
-          >
-            Refrescar ATS
-          </button>
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={handleSaveATS}
+              disabled={savingATS}
+              className="px-6 py-2 border rounded disabled:opacity-50"
+            >
+              {savingATS ? "Guardando..." : "Guardar ATS"}
+            </button>
 
-          <button
-            type="button"
-            onClick={() => handlePrintToPdf()}
-            className="px-6 py-2 bg-black text-white rounded"
-          >
-            Descargar PDF
-          </button>
+            <button
+              type="button"
+              onClick={refreshSavedATS}
+              disabled={!savedAtsId}
+              className="px-6 py-2 border rounded disabled:opacity-50"
+            >
+              Refrescar ATS
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handlePrintToPdf()}
+              className="px-6 py-2 bg-black text-white rounded"
+            >
+              Descargar PDF
+            </button>
+          </div>
         </div>
       )}
+    </div>
+     )}
     </div>
   );
 }

@@ -67,7 +67,11 @@ export async function POST(req: Request) {
       );
     }
 
-    const baseUrl = appUrl.startsWith("http") ? appUrl : `https://${appUrl}`;
+    const normalizedAppUrl = appUrl.replace(/\/$/, "");
+    const baseUrl = normalizedAppUrl.startsWith("http")
+      ? normalizedAppUrl
+      : `https://${normalizedAppUrl}`;
+
     const supabase = getSupabaseAdmin();
 
     const token = crypto.randomBytes(24).toString("hex");
@@ -82,7 +86,7 @@ export async function POST(req: Request) {
       approver_phone: approverPhone,
       status: "pending",
       expires_at: expiresAt,
-      access_validated: false,
+      access_validated: true,
     });
 
     if (error) {
